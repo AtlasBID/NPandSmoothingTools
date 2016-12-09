@@ -1,0 +1,114 @@
+// #include <iostream>
+
+#include "TMath.h"
+
+namespace Analysis {
+template<class T1, class T2>
+T2 round_to (T1 num, T2 precision)
+{
+  float correction = (num >= 0) ? 0.5 : -0.5;
+
+  return int(num / precision + correction) * precision;
+}
+
+template<class Smoother>
+typename Smoother::Numeric_t
+optimizeLeaveOneOutCrossValidation (const Smoother                            &s,
+                                    const typename Smoother::FullCoordIndex_t &selected_coord,
+                                    typename Smoother::Numeric_t               delta)
+{
+  // TODO: generalize to multiple dimensions
+  typename Smoother::Numeric_t best_bandwidth(0.0),
+  min_cv(-1.0),
+  xmin(0.0),
+  xmax(0.0);
+  std::vector<typename Smoother::Numeric_t> widths,
+                                            cv_values;
+  // typename std::vector<typename Smoother::Numeric_t>::size_type optimal_index;
+
+  {
+    bool first_loop = true;
+
+    for (typename Smoother::DataStorageIndex_t icoord = 0;
+         icoord < s.GetNumberOfDataPoints(); ++icoord) {
+      if (first_loop) {
+        xmin       = s.GetDataPoint(icoord)[selected_coord];
+        xmax       = s.GetDataPoint(icoord)[selected_coord];
+        first_loop = false;
+      }
+      else {
+        if (xmin > s.GetDataPoint(icoord)[selected_coord]) xmin = s.GetDataPoint(icoord)[selected_coord];
+
+        if (xmax < s.GetDataPoint(icoord)[selected_coord]) xmax = s.GetDataPoint(icoord)[selected_coord];
+      }
+    }
+  }
+
+  xmin = s.ScaleCoordinate(selected_coord, xmin);
+  xmax = s.ScaleCoordinate(selected_coord, xmax);
+
+  if (delta == 0.0) delta = (xmax - xmin) / (10.0 * s.GetNumberOfDataPoints());
+  widths.clear();
+
+  for (int i = 1; i <= round_to((xmax - xmin), delta) / delta; ++i) widths.push_back(i * delta);
+
+  typename Smoother::Numeric_t average_cv(0.0);
+
+  for (auto width : widths) {
+    typename Smoother::Numeric_t current_cv(0.0);
+
+    // std::cout << "Width: " << width << std::endl;
+    // remove one point per iteration
+    for (typename Smoother::DataStorageIndex_t icoord_remove = 0;
+         icoord_remove < s.GetNumberOfDataPoints(); ++icoord_remove) {
+      Smoother s_holder(s);
+      s_holder.SetNumberOfDataPoints(s.GetNumberOfDataPoints() - 1);
+      s_holder.SetBandwidth(selected_coord, width);
+
+      // store data in s_holder
+      {
+        typename Smoother::DataStorageIndex_t icoord_holder = 0;
+
+        for (typename Smoother::DataStorageIndex_t icoord = 0;
+             icoord < s.GetNumberOfDataPoints(); ++icoord) {
+          if (icoord == icoord_remove) continue;
+          s_holder.SetDataPoint(icoord_holder++, s.GetDataPoint(icoord));
+        }
+      }
+
+      {
+        for (typename Smoother::DataStorageIndex_t icoord = 0;
+             icoord < s.GetNumberOfDataPoints(); ++icoord) {
+          auto diff = s.GetResponse(icoord) - s_holder(s.GetCovariates(icoord));
+
+          current_cv += diff * diff * s.GetResponseWeight(icoord);
+        }
+      }
+
+      current_cv /= s.GetNumberOfDataPoints();
+      cv_values.push_back(current_cv);
+
+      if ((min_cv == -1.0) || (min_cv > current_cv)) {
+        best_bandwidth = width;
+        min_cv         = current_cv;
+      }
+      average_cv += current_cv;
+    }
+  }
+  average_cv /= widths.size();
+
+  typename Smoother::Numeric_t std_cv(0.0);
+
+  for (auto cv : cv_values) {
+    auto diff = cv - average_cv;
+    std_cv += diff * diff;
+  }
+  std_cv /= cv_values.size();
+  std_cv  = TMath::Sqrt(std_cv);
+
+  // std::cout << "Minimized CV: " << min_cv << std::endl;
+  // std::cout << "Average: " << average_cv << " +/- " << std_cv << std::endl;
+
+  return best_bandwidth;
+} // optimizeLeaveOneOutCrossValidation
+}

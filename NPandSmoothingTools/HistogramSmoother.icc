@@ -1,0 +1,171 @@
+
+// namespace {
+//
+// template <class T1, class T2>
+// T2 round_to (T1 num, T2 precision)
+// {
+//   float correction = (num >= 0) ? 0.5 : -0.5;
+//   return int( num/precision + correction ) * precision;
+// }
+//
+// }
+
+
+namespace Analysis {
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+void
+HistogramSmoother<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::LoadData (const TH1 &h, bool useBinErrors)
+{
+  auto            ndim = h.GetDimension();
+  auto           nbins = h.GetNbinsX() + 2;
+  if (ndim > 1) nbins *= (h.GetNbinsY() + 2);
+  if (ndim > 2) nbins *= (h.GetNbinsZ() + 2);
+  const TAxis *xaxis = h.GetXaxis(),
+              *yaxis = ndim > 1 ? h.GetYaxis() : nullptr,
+              *zaxis = ndim > 2 ? h.GetZaxis() : nullptr;
+
+  m_axisHisto.reset(static_cast<TH1*>(h.Clone()));
+  m_axisHisto->SetDirectory(0);
+
+  this->SetDimension(ndim);
+
+  this->SetNumberOfDataPoints(0);
+  for (Int_t bin = 0; bin <= nbins; ++bin) {
+    if (h.IsBinOverflow(bin) || h.IsBinUnderflow(bin)) continue;
+    // TODO: change bin_weight
+    auto bin_content = h.GetBinContent(bin),
+         bin_error = h.GetBinError(bin),
+         bin_weight = (useBinErrors && (bin_error != 0.0)) ? 1.0/(bin_error*bin_error) : 1.0;
+    Int_t xbin, ybin, zbin;
+    h.GetBinXYZ(bin, xbin, ybin, zbin);
+    if (!yaxis) {
+      // auto xbin_low_edge = ScaleCoordinate(0, xaxis->GetBinLowEdge(xbin)),
+      //      xbin_up_edge  = ScaleCoordinate(0, xaxis->GetBinUpEdge(xbin)),
+      //      xbin_center   = InverseScaleCoordinate(0, .5*(xbin_up_edge + xbin_low_edge));
+      auto xbin_center   = xaxis->GetBinCenter(xbin);
+      this->AddDataPoint(xbin_center, bin_content, bin_weight);
+    }
+    else if (!zaxis) {
+      // auto xbin_low_edge = ScaleCoordinate(0, xaxis->GetBinLowEdge(xbin)),
+      //      xbin_up_edge  = ScaleCoordinate(0, xaxis->GetBinUpEdge(xbin)),
+      //      xbin_center   = InverseScaleCoordinate(0, .5*(xbin_up_edge + xbin_low_edge)),
+      //      ybin_low_edge = ScaleCoordinate(1, yaxis->GetBinLowEdge(ybin)),
+      //      ybin_up_edge  = ScaleCoordinate(1, yaxis->GetBinUpEdge(ybin)),
+      //      ybin_center   = InverseScaleCoordinate(1, .5*(ybin_up_edge + ybin_low_edge));
+      auto xbin_center   = xaxis->GetBinCenter(xbin),
+           ybin_center   = yaxis->GetBinCenter(ybin);
+      this->AddDataPoint(xbin_center, ybin_center, bin_content, bin_weight);
+    }
+    else {
+      // auto xbin_low_edge = ScaleCoordinate(0, xaxis->GetBinLowEdge(xbin)),
+      //      xbin_up_edge  = ScaleCoordinate(0, xaxis->GetBinUpEdge(xbin)),
+      //      xbin_center   = InverseScaleCoordinate(0, .5*(xbin_up_edge + xbin_low_edge)),
+      //      ybin_low_edge = ScaleCoordinate(1, yaxis->GetBinLowEdge(ybin)),
+      //      ybin_up_edge  = ScaleCoordinate(1, yaxis->GetBinUpEdge(ybin)),
+      //      ybin_center   = InverseScaleCoordinate(1, .5*(ybin_up_edge + ybin_low_edge)),
+      //      zbin_low_edge = ScaleCoordinate(2, zaxis->GetBinLowEdge(zbin)),
+      //      zbin_up_edge  = ScaleCoordinate(2, zaxis->GetBinUpEdge(zbin)),
+      //      zbin_center   = InverseScaleCoordinate(2, .5*(zbin_up_edge + zbin_low_edge));
+      auto xbin_center   = xaxis->GetBinCenter(xbin),
+           ybin_center   = yaxis->GetBinCenter(ybin),
+           zbin_center   = zaxis->GetBinCenter(zbin);
+      this->AddDataPoint(xbin_center, ybin_center, zbin_center, bin_content, bin_weight);
+    }
+  }
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+TH1*
+HistogramSmoother<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::MakeSmoothedTH1 () const
+{
+  static size_t nSmoothed = 0;
+  auto            ndim = m_axisHisto->GetDimension();
+  auto           nbins = m_axisHisto->GetNbinsX() + 2;
+  if (ndim > 1) nbins *= (m_axisHisto->GetNbinsY() + 2);
+  if (ndim > 2) nbins *= (m_axisHisto->GetNbinsZ() + 2);
+  const TAxis *xaxis = m_axisHisto->GetXaxis(),
+              *yaxis = ndim > 1 ? m_axisHisto->GetYaxis() : nullptr,
+              *zaxis = ndim > 2 ? m_axisHisto->GetZaxis() : nullptr;
+  auto xmin = xaxis->GetXmin(),
+       xmax = xaxis->GetXmax(),
+       ymin = yaxis ? yaxis->GetXmin() : -999.0,
+       ymax = yaxis ? yaxis->GetXmax() : -999.0,
+       zmin = zaxis ? zaxis->GetXmin() : -999.0,
+       zmax = zaxis ? zaxis->GetXmax() : -999.0;
+
+  auto xbins = MakeScaledVector(0, xmin, xmax),
+       ybins = yaxis ? MakeScaledVector(1, ymin, ymax) : std::vector<double>(),
+       zbins = zaxis ? MakeScaledVector(2, zmin, zmax) : std::vector<double>();
+
+  TH1 *m_sh1 = nullptr;
+  if (!yaxis) {
+    m_sh1 = new TH1D(Form("smooth%lu", ++nSmoothed), "", m_nBins[0], &xbins[0]);
+    CopyAxisInfo(m_axisHisto->GetXaxis(), m_sh1->GetXaxis());
+    CopyAxisInfo(m_axisHisto->GetYaxis(), m_sh1->GetYaxis());
+  }
+  else if (!zaxis) {
+    m_sh1 = new TH2D(Form("smooth%lu", ++nSmoothed), "", m_nBins[0], &xbins[0], m_nBins[1], &ybins[0]);
+    CopyAxisInfo(m_axisHisto->GetXaxis(), m_sh1->GetXaxis());
+    CopyAxisInfo(m_axisHisto->GetYaxis(), m_sh1->GetYaxis());
+    CopyAxisInfo(m_axisHisto->GetZaxis(), m_sh1->GetZaxis());
+  }
+  else {
+    m_sh1 = new TH3D(Form("smooth%lu", ++nSmoothed), "", m_nBins[0], &xbins[0], m_nBins[1], &ybins[0], m_nBins[2], &zbins[0]);
+    CopyAxisInfo(m_axisHisto->GetXaxis(), m_sh1->GetXaxis());
+    CopyAxisInfo(m_axisHisto->GetYaxis(), m_sh1->GetYaxis());
+    CopyAxisInfo(m_axisHisto->GetZaxis(), m_sh1->GetZaxis());
+  }
+  nbins = m_sh1->GetNbinsX() + 2;
+  if (ndim > 1) nbins *= (m_sh1->GetNbinsY() + 2);
+  if (ndim > 2) nbins *= (m_sh1->GetNbinsZ() + 2);
+  xaxis = m_sh1->GetXaxis(),
+  yaxis = ndim > 1 ? m_sh1->GetYaxis() : nullptr,
+  zaxis = ndim > 2 ? m_sh1->GetZaxis() : nullptr;
+  //m_sh1->SetDirectory(0);
+
+  for (auto ibin = 0; ibin <= nbins; ++ibin) {
+    if (m_sh1->IsBinOverflow(ibin) || m_sh1->IsBinUnderflow(ibin)) continue;
+    Int_t xbin, ybin, zbin;
+    m_sh1->GetBinXYZ(ibin, xbin, ybin, zbin);
+    double x = xaxis->GetBinCenter(xbin),
+           y = yaxis ? yaxis->GetBinCenter(ybin) : 0.0,
+           z = zaxis ? zaxis->GetBinCenter(zbin) : 0.0,
+           smoothed_value = zaxis ? (*this)(x, y, z) : yaxis ? (*this)(x, y) :
+             (*this)(x);
+
+    m_sh1->SetBinContent(ibin, smoothed_value);
+    m_sh1->SetBinError(ibin, 0.0);
+  }
+
+  return m_sh1;
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+std::vector<double>
+HistogramSmoother<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::MakeScaledVector (size_t dim, double min, double max) const
+{
+  std::vector<double> vec;
+  auto lmin = ScaleCoordinate(dim, min);
+  auto dx=(ScaleCoordinate(dim, max)-lmin)/static_cast<double>(m_nBins[dim]);
+  for (typename BinStorage::value_type i = 0; i <= m_nBins[dim]; ++i) vec.push_back(InverseScaleCoordinate(dim, lmin+i*dx));
+  return vec;
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+void
+HistogramSmoother<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::CopyAxisInfo (TAxis *from, TAxis *to) const
+{
+  to->SetTitle( from->GetTitle() );
+  to->SetTitleColor( from->GetTitleColor() );
+  to->SetTitleFont( from->GetTitleFont() );
+  to->SetTitleOffset( from->GetTitleOffset() );
+  to->SetTitleSize( from->GetTitleSize() );
+  to->SetLabelColor( from->GetLabelColor() );
+  to->SetLabelFont( from->GetLabelFont() );
+  to->SetLabelOffset( from->GetLabelOffset() );
+  to->SetLabelSize( from->GetLabelSize() );
+  to->ImportAttributes( from );
+}
+
+}

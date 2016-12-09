@@ -1,0 +1,604 @@
+
+namespace Analysis
+{
+
+
+// swap operation
+template <typename NumericType_, template <class, class> class KernelPolicy_, template <class, class> class BandwidthPolicy_, template <class, class> class ScalingPolicy_>
+void swap (LocalPolyKernelEstimator<NumericType_, KernelPolicy_, BandwidthPolicy_, ScalingPolicy_>& lhs,
+           LocalPolyKernelEstimator<NumericType_, KernelPolicy_, BandwidthPolicy_, ScalingPolicy_>& rhs) noexcept
+{
+  using std::swap;
+
+  swap(lhs.m_useWeightedData, rhs.m_useWeightedData);
+  swap(lhs.m_fastInvert, rhs.m_fastInvert);
+  swap(lhs.m_update, rhs.m_update);
+  swap(lhs.m_dim, rhs.m_dim);
+  swap(lhs.m_order, rhs.m_order);
+  swap(lhs.m_tol, rhs.m_tol);
+  swap(lhs.m_covarianceMatrix, rhs.m_covarianceMatrix);
+  swap(lhs.m_weights, rhs.m_weights);
+  swap(lhs.m_backup_weights, rhs.m_backup_weights);
+  swap(lhs.m_yVector, rhs.m_yVector);
+  swap(lhs.m_scaled_coordinates, rhs.m_scaled_coordinates);
+  swap(lhs.m_coordinates, rhs.m_coordinates);
+  swap(lhs.m_xMatrix, rhs.m_xMatrix);
+}
+
+// // default constructor
+// template <size_t Order, typename CoordTransformFunc_t, typename KernelFunc_t, typename Numeric_t>
+// constexpr LocalPolyKernelEstimator<Order, CoordTransformFunc_t, KernelFunc_t, Numeric_t>::LocalPolyKernelEstimator () noexcept :
+// m_useErrors(true), m_update(true)
+// {
+// }
+//
+// // copy constructor
+// template <size_t Order, typename CoordTransformFunc_t, typename KernelFunc_t, typename Numeric_t>
+// LocalPolyKernelEstimator<Order, CoordTransformFunc_t, KernelFunc_t, Numeric_t>::LocalPolyKernelEstimator (const LocalPolyKernelEstimator<Order, CoordTransformFunc_t, KernelFunc_t, Numeric_t> &other)
+// {
+//   CopyImpl(other);
+// }
+//
+// // move constructor
+// template <size_t Order, typename CoordTransformFunc_t, typename KernelFunc_t, typename Numeric_t>
+// LocalPolyKernelEstimator<Order, CoordTransformFunc_t, KernelFunc_t, Numeric_t>::LocalPolyKernelEstimator (LocalPolyKernelEstimator<Order, CoordTransformFunc_t, KernelFunc_t, Numeric_t> &&other) :
+//   LocalPolyKernelEstimator<Order, CoordTransformFunc_t, KernelFunc_t, Numeric_t>()
+// {
+//   swap (*this, other);
+// }
+//
+// // assignment operator (copy-swap)
+// template <size_t Order, typename CoordTransformFunc_t, typename KernelFunc_t, typename Numeric_t>
+// LocalPolyKernelEstimator<Order, CoordTransformFunc_t, KernelFunc_t, Numeric_t>&
+// LocalPolyKernelEstimator<Order, CoordTransformFunc_t, KernelFunc_t, Numeric_t>::operator= (LocalPolyKernelEstimator<Order, CoordTransformFunc_t, KernelFunc_t, Numeric_t> other)
+// {
+//   swap(*this, other);
+//   return *this;
+// }
+//
+//
+// // destructor
+// template <size_t Order, typename CoordTransformFunc_t, typename KernelFunc_t, typename Numeric_t>
+// LocalPolyKernelEstimator<Order, CoordTransformFunc_t, KernelFunc_t, Numeric_t>::~LocalPolyKernelEstimator () = default;
+
+
+// // conversion
+// template <size_t Dim, size_t Order, typename CoordTransformFunc_t, typename KernelFunc_t, typename Numeric_t>
+// template <size_t OrderOther, typename NumericOther_t,
+//           typename std::enable_if<!std::is_same<NumericOther_t, Numeric_t>::value, int>::type>
+// LocalPolyKernelEstimator<Dim, Order, CoordTransformFunc_t, KernelFunc_t, Numeric_t>::LocalPolyKernelEstimator (const LocalPolyKernelEstimator<Dim, OrderOther, CoordTransformFunc_t, KernelFunc_t, NumericOther_t> &other)
+// {
+//   static_assert(std::is_convertible<Numeric_t, NumericOther_t>::value,
+//       "Cannot convert LocalPolyKernelEstimators with incompatible numerical types.");
+//   CopyImpl(other);
+// }
+
+
+
+
+// Actual implementation of copy operation for compatible LocalPolyKernelEstimators
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+template <typename OtherNumericType_, template <class, class> class OtherKernelPolicy_, template <class, class> class OtherBandwidthPolicy_, template <class, class> class OtherScalingPolicy_>
+void
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::CopyImpl (const LocalPolyKernelEstimator<OtherNumericType_, OtherKernelPolicy_, OtherBandwidthPolicy_, OtherScalingPolicy_> &other)
+{
+  this->m_useWeightedData     = other.m_useWeightedData;
+  this->m_covarianceMatrix    = other.m_covarianceMatrix;
+  this->RequestUpdate();
+
+  {
+    this->m_coordinates.resize(other.m_coordinates.size());
+    decltype(this->m_coordinates.size()) index = 0;
+    for (auto coords : other.m_coordinates) {
+      decltype(coords.size()) index2 = 0;
+      for (auto coord : coords)
+        this->m_coordinates[index][index2++] = static_cast<NumericType>(coord);
+      ++index;
+    }
+  }
+}
+
+
+// Setters
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+void
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::UseWeightedData (const bool &enable)
+{
+  static bool initial_call = true;
+  if (this->m_useWeightedData != enable || initial_call) {
+    this->m_useWeightedData = enable;
+    this->RequestUpdate();
+    if (initial_call) initial_call = false;
+  }
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+void
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::SetDimension (const size_t &dim)
+{
+  static bool initial_call = true;
+  if (this->m_dim != dim || initial_call) {
+    m_coordinates.clear();
+    this->m_dim = dim;
+    this->RequestUpdate();
+    if (initial_call) initial_call = false;
+  }
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+void
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::SetOrder (const size_t &order)
+{
+  static bool initial_call = true;
+  if (this->m_order != order || initial_call) {
+    this->m_order = order;
+    this->RequestUpdate();
+    if (initial_call) initial_call = false;
+  }
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+template <typename... Args_t>
+typename std::enable_if<are_convertible<NumericType, Args_t...>::value>::type
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::SetDataPoint (const FullCoordIndex_t &index, const Args_t&... args)
+{
+  //static_assert(sizeof...(args) == Dim + 1 || sizeof...(args) == Dim + 2, "In SetDataPoint: must call with \"Dim\" + 1 or \"Dim\" + 2 number of arguments");
+  if (sizeof...(args) != this->m_dim + 1 && sizeof...(args) != this->m_dim + 2)
+    throw ("In SetDataPoint: coordinate must be of dimension " +
+        std::to_string(this->m_dim + 2) + " or " + std::to_string(this->m_dim + 1));
+  this->SetDataPoint(index, {args...});
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+void
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::SetDataPoint (const FullCoordIndex_t &index, const FullCoord_t &coords) noexcept
+{
+  if (coords.size() != this->m_dim + 1 && coords.size() != this->m_dim + 2)
+    throw ("In SetDataPoint: coordinate must be of dimension " +
+          std::to_string(this->m_dim + 2) + " or " + std::to_string(this->m_dim + 1));
+  this->m_coordinates[index] = coords;
+  this->RequestUpdate();
+  if (coords.size() != this->m_dim + 2)
+    //this->m_coordinates[index][this->m_dim + 1] = 1.0;
+    this->m_coordinates[index].emplace_back(1.0);
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+template <typename... Args_t>
+typename std::enable_if<are_convertible<NumericType, Args_t...>::value>::type
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::AddDataPoint (const Args_t&... args)
+{
+  // JWH: Important note to self: Although {args...} looks like a runtime
+  // construct, it isn't. Trying to intialize an std::array of incompatible
+  // length will result in a compile-time error that isn't fixable with
+  // run-time logic
+  // static_assert(sizeof...(args) == Dim + 1 || sizeof...(args) == Dim + 2,
+  //     "In AddDataPoint: must call with \"Dim\" + 1 or \"Dim\" + 2 number of arguments");
+  if (sizeof...(args) != this->m_dim + 1 && sizeof...(args) != this->m_dim + 2)
+    throw ("In AddDataPoint: coordinate must be of dimension " +
+          std::to_string(this->m_dim + 2) + " or " + std::to_string(this->m_dim + 1));
+  this->AddDataPoint({{args...}});
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+void
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::AddDataPoint (const FullCoord_t &coords)
+{
+  if (coords.size() != this->m_dim + 1 && coords.size() != this->m_dim + 2)
+    throw ("In SetDataPoint: coordinate must be of dimension " +
+          std::to_string(this->m_dim + 2) + " or " + std::to_string(this->m_dim + 1));
+  this->m_coordinates.emplace_back(coords);
+  this->RequestUpdate();
+  if (coords.size() != this->m_dim + 2)
+    //this->m_coordinates.back()[this->m_dim + 1] = 1.0;
+    this->m_coordinates.back().emplace_back(1.0);
+  if (m_covarianceMatrix.GetNrows() != static_cast<decltype(m_covarianceMatrix.GetNrows())>(m_coordinates.size()) ||
+      m_covarianceMatrix.GetNcols() != static_cast<decltype(m_covarianceMatrix.GetNrows())>(m_coordinates.size())) {
+    m_covarianceMatrix.ResizeTo(m_coordinates.size(), m_coordinates.size());
+    m_covarianceMatrix.UnitMatrix();
+  }
+}
+
+
+// Evaluation
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+template <typename... Args_t>
+typename std::enable_if<are_convertible<NumericType, Args_t...>::value, NumericType>::type
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::operator() (const Args_t&... args) const
+{
+  //static_assert(sizeof...(args) == Dim, "In Evaluations: must call with \"Dim\" number of arguments");
+  if (sizeof...(args) != this->m_dim)
+    throw ("In operator(): must call with " + std::to_string(this->m_dim) + " number of arguments");
+  return (*this)({{args...}});
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+NumericType
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::operator() (const Covariates_t &coords) const
+{
+  if (coords.size() != this->m_dim)
+    throw ("In operator(): must call with array of length " + std::to_string(this->m_dim));
+
+  if (coords.size() != m_scaled_coordinate.size()) m_scaled_coordinate.resize(this->m_dim);
+  for (ScaledDataStorageIndex_t dim = 0; static_cast<size_t>(dim) < this->m_dim; ++dim)
+    m_scaled_coordinate[dim] = ScaleCoordinate(dim, coords[dim]);
+  RequestUpdate(this->m_update);
+
+  if (this->m_update) this->UpdateMatrices();
+  for (size_t row = 0; row < m_goodDataPoint.size(); ++row)
+    m_goodDataPoint[row] = true;
+  // Info("operator()", "y-Values:");
+  // m_yVector.Print("%6.2f");
+
+  // fill weights "vector"
+  auto weightsMatrix = CreateWeightsVector();
+  bool useBackupWeights = !(weightsMatrix.GetNrows() > 0);
+  // Info("operator()", "Weights:");
+  // m_weights.Print("%6.2f");
+  // Info("operator()", "Backup Weights:");
+  // m_backup_weights.Print("%6.2f");
+  // weightsMatrix.Print("%6.2f");
+  // m_covarianceMatrix.Print("%6.2f");
+
+  // fill xMatrix
+  CreateXMatrix();
+  // Info("operator()", "x-Matrix:");
+  // m_xMatrix.Print("%6.2f");
+
+  // construct final result
+  NumericalMatrix_t lhs(this->m_dim*this->m_order + 1, this->m_dim*this->m_order + 1);
+  lhs.SetTol(std::sqrt(std::numeric_limits<Numeric_t>::min()));
+  if (!useBackupWeights) {
+    for (size_t row = 0; row < this->m_dim*this->m_order + 1; ++row)
+      for (size_t col = row; col < this->m_dim*this->m_order + 1; ++col) {
+        lhs(row, col) = 0.0;
+        auto weightsColIndex = 0;
+        for (DataStorageIndex_t icoord = 0;
+            icoord < m_coordinates.size(); ++icoord) {
+          if (!m_goodDataPoint[icoord]) continue;
+          auto weightsRowIndex = 0;
+          for (DataStorageIndex_t jcoord = 0;
+              jcoord < m_coordinates.size(); ++jcoord) {
+            if (!m_goodDataPoint[jcoord]) continue;
+            lhs(row, col) += m_xMatrix(jcoord, row)*weightsMatrix(weightsRowIndex, weightsColIndex)*m_xMatrix(icoord, col);
+            ++weightsRowIndex;
+          }
+          ++weightsColIndex;
+        }
+        // for (DataStorageIndex_t icoord = 0;
+        //      icoord < m_coordinates.size(); ++icoord) {
+        //   if (!m_goodDataPoint[icoord]) continue;
+        //   lhs(row, col) += m_weights(icoord)*m_xMatrix(icoord, row)*m_xMatrix(icoord, col);
+        // }
+        lhs(col, row) = lhs(row, col);
+      }
+    // Info("operator()", "lhs-Matrix:");
+    // lhs.Print("%6.2f");
+  }
+  // TODO:
+  // Should be 'Numeric_t det;', but ROOT requires double
+  //Numeric_t det;
+  double det;
+  if (!useBackupWeights) {
+    // this is to ignore the inversion of singular matrix error message
+    // this should be done outside this method, not thread safe to modify global
+    // auto current_error_level = gErrorIgnoreLevel;
+    // gErrorIgnoreLevel = kBreak;
+    if (m_fastInvert) lhs.InvertFast(&det);
+    else lhs.Invert(&det);
+    // det = lhs.Determinant();
+    if (TMath::Abs(det) <= m_tol)
+      useBackupWeights = true;
+    // else {
+    // }
+    // gErrorIgnoreLevel = current_error_level;
+  }
+
+  if (useBackupWeights) {
+    for (size_t row = 0; row < this->m_dim*this->m_order + 1; ++row)
+      for (size_t col = row; col < this->m_dim*this->m_order + 1; ++col) {
+        lhs(row, col) = 0.0;
+        // for (DataStorageIndex_t icoord = 0;
+        //     icoord < m_coordinates.size(); ++icoord)
+        //   lhs(row, col) += m_backup_weights(icoord)*m_xMatrix(icoord, row)*m_xMatrix(icoord, col);
+        for (DataStorageIndex_t icoord = 0;
+            icoord < m_coordinates.size(); ++icoord) {
+          for (DataStorageIndex_t jcoord = 0;
+              jcoord < m_coordinates.size(); ++jcoord) {
+            lhs(row, col) += m_xMatrix(jcoord, row)*m_invCovarianceMatrix(jcoord, icoord)*m_xMatrix(icoord, col);
+          }
+        }
+        lhs(col, row) = lhs(row, col);
+      }
+    if (m_fastInvert) lhs.InvertFast(&det);
+    else lhs.Invert(&det);
+    // det = lhs.Determinant();
+    if (TMath::Abs(det) <= m_tol) {
+      Error("operator()", "\"weights\" matrix is singular even after removing kernel evaluations - returning 0.0");
+      return 0.0;
+    }
+  }
+  // Info("operator()", "lhs-Matrix after inversion:");
+  // lhs.Print("%6.2f");
+
+  NumericalVector_t rhs(this->m_dim*this->m_order + 1);
+  for (size_t row = 0; row < this->m_dim*this->m_order + 1; ++row) {
+    rhs(row) = 0.0;
+    auto weightsColIndex = 0;
+    for (DataStorageIndex_t icoord = 0;
+         icoord < m_coordinates.size(); ++icoord) {
+      auto weightsRowIndex = 0;
+      for (DataStorageIndex_t jcoord = 0;
+           jcoord < m_coordinates.size(); ++jcoord) {
+        if (useBackupWeights)
+          rhs(row) += m_xMatrix(jcoord, row)*m_invCovarianceMatrix(jcoord, icoord)*m_yVector(icoord);
+        else if (m_goodDataPoint[icoord] && m_goodDataPoint[jcoord]) {
+          rhs(row) += m_xMatrix(jcoord, row)*weightsMatrix(weightsRowIndex, weightsColIndex)*m_yVector(icoord);
+          ++weightsRowIndex;
+        }
+      }
+      if (m_goodDataPoint[icoord]) ++weightsColIndex;
+    }
+  }
+  // Info("operator()", "rhs-Vector:");
+  // rhs.Print("%6.2f");
+
+  // Info("operator()", "final result (sum of products and total):");
+  NumericType result = 0.0;
+  for (size_t col = 0; col < this->m_dim*this->m_order + 1; ++col) {
+    result += lhs(0, col)*rhs(col);
+    // Info("operator()", "%f*%f +", lhs(0, col), rhs(col));
+  }
+  // Info("operator()", "%f", result);
+
+  return result;
+}
+
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+auto
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::ComputeHhat () const ->NumericalMatrix_t
+{
+  auto numDataPoints = this->GetNumberOfDataPoints();
+  NumericalMatrix_t hHat(numDataPoints, numDataPoints);
+
+  for (DataStorageIndex_t index = 0; index < numDataPoints; ++index) {
+    auto coords = this->GetCovariates(index);
+
+    if (coords.size() != m_scaled_coordinate.size()) m_scaled_coordinate.resize(this->m_dim);
+    for (ScaledDataStorageIndex_t dim = 0; static_cast<size_t>(dim) < this->m_dim; ++dim)
+      m_scaled_coordinate[dim] = ScaleCoordinate(dim, coords[dim]);
+    RequestUpdate(this->m_update);
+
+    if (this->m_update) this->UpdateMatrices();
+    for (size_t row = 0; row < m_goodDataPoint.size(); ++row)
+      m_goodDataPoint[row] = true;
+
+    // fill weights "vector"
+    auto weightsMatrix = CreateWeightsVector();
+    bool useBackupWeights = !(weightsMatrix.GetNrows() > 0);
+
+    // fill xMatrix
+    CreateXMatrix();
+
+    // construct final result
+    NumericalMatrix_t lhs(this->m_dim*this->m_order + 1, this->m_dim*this->m_order + 1);
+    lhs.SetTol(std::sqrt(std::numeric_limits<Numeric_t>::min()));
+    if (!useBackupWeights) {
+      for (size_t row = 0; row < this->m_dim*this->m_order + 1; ++row)
+        for (size_t col = row; col < this->m_dim*this->m_order + 1; ++col) {
+          lhs(row, col) = 0.0;
+          auto weightsColIndex = 0;
+          for (DataStorageIndex_t icoord = 0;
+              icoord < m_coordinates.size(); ++icoord) {
+            if (!m_goodDataPoint[icoord]) continue;
+            auto weightsRowIndex = 0;
+            for (DataStorageIndex_t jcoord = 0;
+                jcoord < m_coordinates.size(); ++jcoord) {
+              if (!m_goodDataPoint[jcoord]) continue;
+              lhs(row, col) += m_xMatrix(jcoord, row)*weightsMatrix(weightsRowIndex, weightsColIndex)*m_xMatrix(icoord, col);
+              ++weightsRowIndex;
+            }
+            ++weightsColIndex;
+          }
+          lhs(col, row) = lhs(row, col);
+        }
+    }
+    // NOTE: Should be 'Numeric_t det;', but ROOT requires double
+    //Numeric_t det;
+    double det;
+    if (!useBackupWeights) {
+      if (m_fastInvert) lhs.InvertFast(&det);
+      else lhs.Invert(&det);
+      // det = lhs.Determinant();
+      if (TMath::Abs(det) <= m_tol)
+        useBackupWeights = true;
+      // else {
+      // }
+    }
+
+    if (useBackupWeights) {
+      for (size_t row = 0; row < this->m_dim*this->m_order + 1; ++row)
+        for (size_t col = row; col < this->m_dim*this->m_order + 1; ++col) {
+          lhs(row, col) = 0.0;
+          for (DataStorageIndex_t icoord = 0;
+              icoord < m_coordinates.size(); ++icoord) {
+            for (DataStorageIndex_t jcoord = 0;
+                jcoord < m_coordinates.size(); ++jcoord) {
+              lhs(row, col) += m_xMatrix(jcoord, row)*m_invCovarianceMatrix(jcoord, icoord)*m_xMatrix(icoord, col);
+            }
+          }
+          lhs(col, row) = lhs(row, col);
+        }
+      if (m_fastInvert) lhs.InvertFast(&det);
+      else lhs.Invert(&det);
+      // det = lhs.Determinant();
+      if (TMath::Abs(det) <= m_tol) {
+        Error("ComputeHhat", "\"weights\" matrix is singular even after removing kernel evaluations - returning default matrix");
+        return NumericalMatrix_t();
+      }
+    }
+
+    NumericalMatrix_t rhs;
+    if (!useBackupWeights) rhs.ResizeTo(this->m_dim*this->m_order + 1, weightsMatrix.GetNcols());
+    else rhs.ResizeTo(this->m_dim*this->m_order + 1, m_invCovarianceMatrix.GetNcols());
+    for (size_t row = 0; row < this->m_dim*this->m_order + 1; ++row) {
+      for (auto col = 0; col < rhs.GetNcols(); ++col) {
+        rhs(row, col) = 0.0;
+        auto weightsRowIndex = 0;
+        for (DataStorageIndex_t icoord = 0;
+             icoord < m_coordinates.size(); ++icoord) {
+          if (useBackupWeights)
+            rhs(row, col) += m_xMatrix(icoord, row)*m_invCovarianceMatrix(icoord, col);
+          else if (m_goodDataPoint[icoord]) {
+            rhs(row, col) += m_xMatrix(icoord, row)*weightsMatrix(weightsRowIndex, col);
+            ++weightsRowIndex;
+          }
+        }
+      }
+    }
+
+    {
+      for (auto col = 0; col < hHat.GetNcols(); ++col) {
+        hHat(index, col) = 0.0;
+        auto rhs_col = 0;
+        for (Int_t rhs_row = 0; rhs_row < rhs.GetNrows(); ++rhs_row) {
+          if (m_goodDataPoint[col]) {
+            hHat(index, col) += lhs(0, rhs_row)*rhs(rhs_row, rhs_col);
+            ++rhs_col;
+          }
+        }
+      }
+    }
+  }
+
+  return hHat;
+}
+
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+void
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::RequestUpdate (const bool update_this) const
+{
+  this->m_update = update_this;
+  KernelPolicy_t::Update();
+  BandwidthPolicy_t::Update();
+  ScalingPolicy_t::Update();
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+void
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::UpdateMatrices () const
+{
+  m_weights.ResizeTo(m_coordinates.size());
+  m_goodDataPoint.resize(m_coordinates.size());
+  m_backup_weights.ResizeTo(m_coordinates.size());
+  m_yVector.ResizeTo(m_coordinates.size());
+  m_xMatrix.ResizeTo(m_coordinates.size(), this->m_dim*this->m_order + 1);
+  this->m_update = false;
+
+  // assign "y" values
+  // CoordStorageIndex_t<Dim + 2> index = 0;
+  // for (auto& y : m_yVector)
+  //   y = m_coordinates[index++][Dim];
+  for (NumericalVectorIndex_t index = 0; index < m_yVector.GetNoElements(); ++index) {
+    m_yVector[index] = m_coordinates[index][this->m_dim];
+    if (m_useWeightedData) m_backup_weights[index] = m_coordinates[index][this->m_dim + 1];
+    else m_backup_weights[index] = 1.0;
+  }
+
+  m_scaled_coordinates.resize(m_coordinates.size()); // domain coordinates with weights
+  for (ScaledDataStorageIndex_t data_index = 0; data_index < m_scaled_coordinates.size(); ++data_index) {
+    m_scaled_coordinates[data_index].resize(this->m_dim + 1);
+    for (NumericalVectorIndex_t dim = 0; static_cast<size_t>(dim) < this->m_dim; ++dim)
+      m_scaled_coordinates[data_index][dim] = ScaleCoordinate(dim, m_coordinates[data_index][dim]);
+    m_scaled_coordinates[data_index][this->m_dim] = m_coordinates[data_index][this->m_dim + 1]; // point weights
+  }
+  // for BandwidthPolicy
+  RequestUpdate(this->m_update);
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+void
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::CreateXMatrix () const
+{
+  for (NumericalMatrixIndex_t row = 0; row < m_xMatrix.GetNrows(); ++row) {
+    m_xMatrix(row, 0) = 1.0;
+    for (NumericalMatrixIndex_t col_order = 1; static_cast<size_t>(col_order) <= this->m_order; ++col_order) {
+      for (NumericalMatrixIndex_t col_dim = 1; static_cast<size_t>(col_dim) <= this->m_dim; ++col_dim) {
+        NumericalMatrixIndex_t col = (col_order - 1)*col_dim + col_dim;
+        // NumericType diff = ScaleCoordinate(col_dim - 1, m_coordinates[row][col_dim - 1])
+        //   - ScaleCoordinate(col_dim - 1, coords[col_dim - 1]);
+        NumericType diff = m_scaled_coordinates[row][col_dim - 1] -
+          m_scaled_coordinate[col_dim - 1];
+        m_xMatrix(row, col) = diff;
+        for (int pow = 1; pow < col_order; ++pow)
+          m_xMatrix(row, col) *= diff;
+      }
+    }
+  }
+}
+
+template <typename NumericType, template <class, class> class KernelPolicy, template <class, class> class BandwidthPolicy, template <class, class> class ScalingPolicy>
+auto
+LocalPolyKernelEstimator<NumericType, KernelPolicy, BandwidthPolicy, ScalingPolicy>::CreateWeightsVector () const ->NumericalMatrix_t
+{
+  Covariates_t scaled_diff(this->m_dim);
+  size_t numGoodDataPoints = m_goodDataPoint.size();
+
+  for (NumericalVectorIndex_t row = 0; row < m_weights.GetNrows(); ++row) {
+    for (NumericalVectorIndex_t dim = 0; static_cast<size_t>(dim) < this->m_dim; ++dim)
+      scaled_diff[dim] = m_scaled_coordinate[dim] - m_scaled_coordinates[row][dim];
+    // TODO: add additional scale factor (m_scale) here
+    // m_weights[row] = m_scale*GetKernelFactor()*EvaluateKernel(GetKernelInput(m_scale*scaled_diff));
+    m_weights[row] = GetKernelFactor()*EvaluateKernel(GetKernelInput(scaled_diff));
+    // NOTE: JWH tinkering with derivative of transform here
+    // m_weights[row] = GetKernelFactor()*EvaluateKernel(GetKernelInput(scaled_diff))/m_scaled_coordinate[0];
+    if (m_useWeightedData) m_weights[row] *= m_coordinates[row][this->m_dim + 1];
+    if (m_covarianceMatrix(row, row)*TMath::Abs(m_weights[row]) < std::sqrt(std::numeric_limits<Numeric_t>::min())) {
+      m_goodDataPoint[row] = false;
+      --numGoodDataPoints;
+    }
+  }
+
+  {
+    m_invCovarianceMatrix.ResizeTo(m_covarianceMatrix.GetNrows(), m_covarianceMatrix.GetNcols());
+    m_invCovarianceMatrix = m_covarianceMatrix;
+    double det = 0.0;
+    if (m_fastInvert) m_invCovarianceMatrix.InvertFast(&det);
+    else m_invCovarianceMatrix.Invert(&det);
+    if (TMath::Abs(det) < m_tol)
+      Fatal("CreateWeightsVector", "couldn't invert variance-covariance matrix - something is very wrong");
+  }
+
+  // convolution
+  if (numGoodDataPoints > 0) {
+    NumericalMatrix_t weightsMatrix(numGoodDataPoints, numGoodDataPoints);
+    auto weightsMatrixRowIndex = 0;
+    for (NumericalMatrixIndex_t row = 0; row < m_invCovarianceMatrix.GetNrows(); ++row) {
+      if (!m_goodDataPoint[row]) continue;
+      auto weightsMatrixColIndex = weightsMatrixRowIndex;
+      for (NumericalMatrixIndex_t col = row; col < m_invCovarianceMatrix.GetNcols(); ++col) {
+        if (!m_goodDataPoint[col]) continue;
+        // taking two Sqrt's is inefficient, but more numerically stable if weights are close to tolerance
+        weightsMatrix(weightsMatrixRowIndex, weightsMatrixColIndex) =
+          m_invCovarianceMatrix(row, col)*(TMath::Sqrt(m_weights[row])*TMath::Sqrt(m_weights[col]));
+        if (weightsMatrixRowIndex != weightsMatrixColIndex)
+          weightsMatrix(weightsMatrixColIndex, weightsMatrixRowIndex) =
+            weightsMatrix(weightsMatrixRowIndex, weightsMatrixColIndex);
+        ++weightsMatrixColIndex;
+      }
+      ++weightsMatrixRowIndex;
+    }
+    // for (NumericalMatrixIndex_t col_dim = 0; static_cast<size_t>(col_dim) < this->m_dim; ++col_dim) {
+    //   std::cout << InverseScaleCoordinate(col_dim, m_scaled_coordinate[col_dim]) << ", ";
+    // }
+    // std::cout << std::endl;
+    // weightsMatrix.Print();
+    return weightsMatrix;
+  }
+  return NumericalMatrix_t();
+}
+
+
+}
