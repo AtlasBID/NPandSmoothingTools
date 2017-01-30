@@ -349,12 +349,13 @@ void HarvestHistograms (TFile *f, TFile *of, data_map_t &m)
   Harvester("", m, key_list);
 } // HarvestHistograms
 
-bool SmoothHistogram (TH1            &unsmoothed,
-                      TH1            &eff,
-                      KernelSmoother &smoother,
-                      const bool     &uniaxis = true,
-                      const bool     &is_nominal = true,
-                      const KernelSmoother::NumericalMatrix_t *cov = nullptr)
+bool SmoothHistogram (TH1             &unsmoothed,
+                      TH1             &eff,
+                      KernelSmoother  &smoother,
+                      const bool      &uniaxis = true,
+                      const bool      &is_nominal = true,
+                      const KernelSmoother::NumericalMatrix_t *cov = nullptr,
+                      const bool      &ignore_tw_relationship = false)
 {
   // check for dimension here
   auto ndim  = unsmoothed.GetDimension();
@@ -422,9 +423,9 @@ bool SmoothHistogram (TH1            &unsmoothed,
     }
 
     if (uniaxis) { // smooth only along pT axis
-      vector<TH1*>                                      smoothed_histos;
-      unordered_map<unsigned, unordered_map<int, TH1*>> last_tw_bins_;
-      auto                                              last_tw_bin = tw_axis->GetNbins();
+      // NOTE: eta bin, tw bin, pt histo
+      map<int, map<int, TH1*>>    smoothed_histos;
+      auto                        last_tw_bin = tw_axis->GetNbins();
 
       // Smooth along pt separately for each eta bin
       for (int i = 1; i <= eta_axis->GetNbins(); ++i) {
@@ -442,17 +443,14 @@ bool SmoothHistogram (TH1            &unsmoothed,
           smoother.LoadData(*to_smooth, false);
 
           Info("SmoothHistogram", "at %s bin %d and %s bin %d", eta_axis->GetTitle(), i, tw_axis->GetTitle(), j);
-          smoothed_histos.push_back(static_cast<TH1*>(smoother.MakeSmoothedTH1()));
-          if (j == last_tw_bin) {
-            last_tw_bins_[smoothed_histos.size() - 1][i] = smoothed_histos.back();
-          }
+          smoothed_histos[i][j] = static_cast<TH1*>(smoother.MakeSmoothedTH1());
 
           delete to_smooth;
         }
       }
 
       {
-        auto &hist = smoothed_histos.back();
+        auto &hist = smoothed_histos[1][1];
         // Rebin histogram
         if (eta_is_x) {
           if (tw_is_y) {
@@ -492,34 +490,28 @@ bool SmoothHistogram (TH1            &unsmoothed,
         }
       }
 
-      for (auto &p : last_tw_bins_) {
-        auto &index = p.first;
-        for (auto &pp : p.second) {
-          auto &eta_bin_ref = pp.first;
-          auto last_tw_bins = static_cast<TH1*>(pp.second->Clone());
-          last_tw_bins->SetDirectory(0);
+      // std::cout << "JWH: smoothed histogram bins" << std::endl;
+      // std::cout << "JWH: # of " << h->GetXaxis()->GetTitle() << " bins = " << h->GetXaxis()->GetNbins() << std::endl;
+      // std::cout << "JWH: # of " << h->GetYaxis()->GetTitle() << " bins = " << h->GetYaxis()->GetNbins() << std::endl;
+      // std::cout << "JWH: # of " << h->GetZaxis()->GetTitle() << " bins = " << h->GetZaxis()->GetNbins() << std::endl;
+      //
+      // std::cout << "JWH: efficiency bins" << std::endl;
+      // std::cout << "JWH: # of " << eff.GetXaxis()->GetTitle() << " bins = " << eff.GetXaxis()->GetNbins() << std::endl;
+      // std::cout << "JWH: # of " << eff.GetYaxis()->GetTitle() << " bins = " << eff.GetYaxis()->GetNbins() << std::endl;
+      // std::cout << "JWH: # of " << eff.GetZaxis()->GetTitle() << " bins = " << eff.GetZaxis()->GetNbins() << std::endl;
+
+
+      {
+        auto last_tw_bins = static_cast<TH1*>(smoothed_histos[1][1]->Clone());
+        last_tw_bins->SetDirectory(0);
+
+        for (auto &eta_pair : smoothed_histos) {
+          int eta_bin = eta_pair.first;
           last_tw_bins->Reset();
 
-          // Fill original 3D histogram
-          int eta_bin = 1,
-              tw_bin = 1;
-
-          std::cout << "JWH: eta_bin_ref = " << eta_bin_ref << std::endl;
-          for (vector<TH1*>::iterator ihist = smoothed_histos.begin();
-               ihist != smoothed_histos.end(); ++ihist) {
-            std::cout << "JWH: eta_bin = " << eta_bin << std::endl;
-            std::cout << "JWH: tw_bin = " << tw_bin << std::endl;
-            if (eta_bin_ref != eta_bin) {
-              // NOTE: tag weight axis is "inner" loop
-              ++tw_bin;
-              if (tw_bin > tw_axis->GetNbins()) {
-                tw_bin = 1;
-                ++eta_bin;
-                // last_tw_bins->Reset();
-              }
-              continue;
-            }
-            auto hist = *ihist; // pt
+          for (auto &tw_pair : eta_pair.second) {
+            int tw_bin = tw_pair.first;
+            TH1 *hist = tw_pair.second; // pt bins
 
             // Actually fill bins
             for (int pt_bin = 1; pt_bin <= hist->GetNbinsX(); ++pt_bin) {
@@ -532,7 +524,7 @@ bool SmoothHistogram (TH1            &unsmoothed,
 
               // NOTE: do tag weight axis restriction
               double pt_value = hist->GetXaxis()->GetBinCenter(pt_bin);
-              int unsmoothed_pt_bin = eff.GetXaxis() ->FindBin(pt_value);
+              int unsmoothed_pt_bin = eff.GetXaxis()->FindBin(pt_value);
               int local_global_bin = eta_is_x && !tw_is_x && !tw_is_y ? eff.GetBin(eta_bin, unsmoothed_pt_bin, tw_bin) :
                                      eta_is_x && tw_is_y ? eff.GetBin(eta_bin, tw_bin, unsmoothed_pt_bin) :
                                      eta_is_y && tw_is_x ? eff.GetBin(tw_bin, eta_bin, unsmoothed_pt_bin) :
@@ -541,125 +533,33 @@ bool SmoothHistogram (TH1            &unsmoothed,
                                      /*tw_is_y ?*/ eff.GetBin(unsmoothed_pt_bin, tw_bin, eta_bin);
               double local_eff = eff.GetBinContent(local_global_bin);
               if (tw_bin == tw_axis->GetNbins() && is_nominal) {
-                std::cout << "JWH: pt_bin: content " << pt_bin << ": " << last_tw_bins->GetBinContent(pt_bin) << "(" << local_eff << ")" << std::endl;
-                h->SetBinContent(global_bin, -1.0*(last_tw_bins->GetBinContent(pt_bin) - 1.0)/local_eff);
-                h->SetBinError(global_bin, last_tw_bins->GetBinError(pt_bin)/local_eff);
+                if (!ignore_tw_relationship) {
+                  h->SetBinContent(global_bin, (1.0 - last_tw_bins->GetBinContent(pt_bin))/local_eff);
+                  h->SetBinError(global_bin, last_tw_bins->GetBinError(pt_bin)/local_eff);
+                }
+                else {
+                  h->SetBinContent(global_bin, hist->GetBinContent(pt_bin));
+                  h->SetBinError(global_bin, hist->GetBinError(pt_bin));
+                }
               }
               else {
                 last_tw_bins->SetBinContent(pt_bin, last_tw_bins->GetBinContent(pt_bin) + hist->GetBinContent(pt_bin)*local_eff);
                 last_tw_bins->SetBinError(pt_bin, TMath::Sqrt(last_tw_bins->GetBinError(pt_bin)*last_tw_bins->GetBinError(pt_bin) + local_eff*local_eff*hist->GetBinError(pt_bin)*hist->GetBinError(pt_bin)));
-                std::cout << "JWH: pt_bin: pre-content " << pt_bin << ": " << last_tw_bins->GetBinContent(pt_bin) << " => " << hist->GetBinContent(pt_bin) << "*" << local_eff << std::endl;
 
                 h->SetBinContent(global_bin, hist->GetBinContent(pt_bin));
                 h->SetBinError(global_bin, hist->GetBinError(pt_bin));
               }
+              // if (is_nominal) {
+              //   std::cout << "JWH: pt bin " << pt_bin << ", eta bin " << eta_bin << ", tagweight bin " << tw_bin << ": " << h->GetBinContent(global_bin) << " +/- " << h->GetBinError(global_bin) << std::endl;
+              //   std::cout << "JWH: eff = " << local_eff << std::endl;
+              // }
             }
-
-
-            // NOTE: tag weight axis is "inner" loop
-            ++tw_bin;
-            if (tw_bin > tw_axis->GetNbins()) {
-              tw_bin = 1;
-              ++eta_bin;
-              // last_tw_bins->Reset();
-            }
-
-            hist->SetDirectory(0);
-            delete hist;
           }
-
-          delete last_tw_bins;
         }
+
+        delete last_tw_bins;
       }
-      // TH1 *last_tw_bins = static_cast<TH1*>(smoothed_histos.back()->Clone());
-      // last_tw_bins->SetDirectory(0);
-      // last_tw_bins->Reset();
-      // for (vector<TH1*>::iterator ihist = smoothed_histos.begin();
-      //      ihist != smoothed_histos.end(); ++ihist) {
-      //   auto hist = *ihist; // pt
-      //   // Rebin histogram
-      //   if (eta_is_x && (eta_bin == 1)) {
-      //     if (tw_is_y && (tw_bin == 1)) {
-      //       h->SetBins(h->GetNbinsX(), h->GetXaxis()->GetXbins()->GetArray(),
-      //                  h->GetNbinsY(), h->GetYaxis()->GetXbins()->GetArray(),
-      //                  hist->GetNbinsX(), hist->GetXaxis()->GetXbins()->GetArray());
-      //     }
-      //     else if (tw_bin == 1)  {
-      //       h->SetBins(h->GetNbinsX(), h->GetXaxis()->GetXbins()->GetArray(),
-      //                  hist->GetNbinsX(), hist->GetXaxis()->GetXbins()->GetArray(),
-      //                  h->GetNbinsZ(), h->GetZaxis()->GetXbins()->GetArray());
-      //     }
-      //   }
-      //   else if (eta_is_y && (eta_bin == 1)) {
-      //     if (tw_is_x && (tw_bin == 1)) {
-      //       h->SetBins(h->GetNbinsX(), h->GetXaxis()->GetXbins()->GetArray(),
-      //                  h->GetNbinsY(), h->GetYaxis()->GetXbins()->GetArray(),
-      //                  hist->GetNbinsX(), hist->GetXaxis()->GetXbins()->GetArray());
-      //     }
-      //     else if (tw_bin == 1)  {
-      //       h->SetBins(hist->GetNbinsX(), hist->GetXaxis()->GetXbins()->GetArray(),
-      //                  h->GetNbinsY(), h->GetYaxis()->GetXbins()->GetArray(),
-      //                  h->GetNbinsZ(), h->GetZaxis()->GetXbins()->GetArray());
-      //     }
-      //   }
-      //   else if (eta_bin == 1)  {
-      //     if (tw_is_x && (tw_bin == 1)) {
-      //       h->SetBins(h->GetNbinsX(), h->GetXaxis()->GetXbins()->GetArray(),
-      //                  hist->GetNbinsX(), hist->GetXaxis()->GetXbins()->GetArray(),
-      //                  h->GetNbinsZ(), h->GetZaxis()->GetXbins()->GetArray());
-      //     }
-      //     else if (tw_bin == 1)  {
-      //       h->SetBins(hist->GetNbinsX(), hist->GetXaxis()->GetXbins()->GetArray(),
-      //                  h->GetNbinsY(), h->GetYaxis()->GetXbins()->GetArray(),
-      //                  h->GetNbinsZ(), h->GetZaxis()->GetXbins()->GetArray());
-      //     }
-      //   }
-      //
-      //   // Actually fill bins
-      //   for (int pt_bin = 1; pt_bin <= hist->GetNbinsX(); ++pt_bin) {
-      //     int global_bin = eta_is_x && !tw_is_x && !tw_is_y ? h->GetBin(eta_bin, pt_bin, tw_bin) :
-      //                      eta_is_x && tw_is_y ? h->GetBin(eta_bin, tw_bin, pt_bin) :
-      //                      eta_is_y && tw_is_x ? h->GetBin(tw_bin, eta_bin, pt_bin) :
-      //                      eta_is_y && !tw_is_x && !tw_is_y ? h->GetBin(pt_bin, eta_bin, tw_bin) :
-      //                      tw_is_x ? h->GetBin(tw_bin, pt_bin, eta_bin) :
-      //                      /*tw_is_y ?*/ h->GetBin(pt_bin, tw_bin, eta_bin);
-      //
-      //     // NOTE: do tag weight axis restriction
-      //     double pt_value = hist->GetXaxis()->GetBinCenter(pt_bin);
-      //     int unsmoothed_pt_bin = pt_axis->FindBin(pt_value);
-      //     int local_global_bin = eta_is_x && !tw_is_x && !tw_is_y ? eff.GetBin(eta_bin, unsmoothed_pt_bin, tw_bin) :
-      //                            eta_is_x && tw_is_y ? eff.GetBin(eta_bin, tw_bin, unsmoothed_pt_bin) :
-      //                            eta_is_y && tw_is_x ? eff.GetBin(tw_bin, eta_bin, unsmoothed_pt_bin) :
-      //                            eta_is_y && !tw_is_x && !tw_is_y ? eff.GetBin(unsmoothed_pt_bin, eta_bin, tw_bin) :
-      //                            tw_is_x ? eff.GetBin(tw_bin, unsmoothed_pt_bin, eta_bin) :
-      //                            /*tw_is_y ?*/ eff.GetBin(unsmoothed_pt_bin, tw_bin, eta_bin);
-      //     double local_eff = eff.GetBinContent(local_global_bin);
-      //     if (tw_bin == tw_axis->GetNbins() && is_nominal) {
-      //       h->SetBinContent(global_bin, -1.0*(last_tw_bins->GetBinContent(pt_bin) - 1.0)/local_eff);
-      //       // h->SetBinError(global_bin, hist->GetBinError(pt_bin));
-      //     }
-      //     else {
-      //       last_tw_bins->SetBinContent(pt_bin, last_tw_bins->GetBinContent(pt_bin) + hist->GetBinContent(pt_bin)*local_eff);
-      //
-      //       h->SetBinContent(global_bin, hist->GetBinContent(pt_bin));
-      //       h->SetBinError(global_bin, hist->GetBinError(pt_bin));
-      //     }
-      //   }
-      //
-      //
-      //   // NOTE: tag weight axis is "inner" loop
-      //   ++tw_bin;
-      //   if (tw_bin > tw_axis->GetNbins()) {
-      //     tw_bin = 1;
-      //     ++eta_bin;
-      //     last_tw_bins->Reset();
-      //   }
-      //
-      //   hist->SetDirectory(0);
-      //   delete hist;
-      // }
-      //
-      // delete last_tw_bins;
+
 
       smoother.UseWeightedData(smooth_errors);
       return true;
@@ -965,7 +865,8 @@ TH1* GetNuisanceVariation (KernelSmoother &smoother,
                            // const TH1 &result, const TH1 &unsmoothed_result,
                            // TH1 &variation, const int &bin = -1,
                            TH1 &variation, TH1 &eff, const int &bin = -1,
-                           const bool &uniaxis = true)
+                           const bool &uniaxis = true,
+                           const bool &ignore_tw_relationship = false)
 {
   auto var = bin >= 0 ? static_cast<TH1*>(variation.Clone()) : &variation;
 
@@ -990,7 +891,7 @@ TH1* GetNuisanceVariation (KernelSmoother &smoother,
   //       however, the addition/subtraction introduces numerical instability
   //       and the functional form of a kernel smoother makes this unnecessary
   // var->Add(&unsmoothed_result);
-  if (!SmoothHistogram(*var, eff, smoother, uniaxis, false)) {
+  if (!SmoothHistogram(*var, eff, smoother, uniaxis, false, nullptr, ignore_tw_relationship)) {
     Error("GetNuisanceVariation", "unable to smooth nuisance variation %s", var->GetName());
     return nullptr;
   }
@@ -1175,9 +1076,11 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
 
     // smooth histograms if necessary
     if (shouldSmooth("B") || shouldSmooth("C") || shouldSmooth("Tau") || shouldSmooth("Light")) {
-      auto uniaxis                         = false;
+      auto eff_full_name                    = full_name;
+      auto uniaxis                          = false;
+      auto ignore_tw_relationship           = false;
       auto *c = static_cast<CalibrationDataHistogramContainer*>(o);
-      auto *eff = static_cast<CalibrationDataHistogramContainer*>(data_containers[full_name.ReplaceAll("_SF", "_Eff").Data()]);
+      auto *eff = static_cast<CalibrationDataHistogramContainer*>(data_containers[eff_full_name.ReplaceAll("_SF", "_Eff").Data()]);
       TList                              syst_nuis_names;
       TIterator                         *itt = c->MakeIterator();
       TObjString                        *k;
@@ -1190,7 +1093,8 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
       result_no_error.SetDirectory(0);
       unsmoothed_result.SetDirectory(0);
 
-      if (directory_name.Contains("continuous")) {
+      // if (directory_name.Contains("continuous")) {
+      if (directory_name.Contains("Continuous") || directory_name.Contains("continuous")) {
         if (shouldSmooth("Light")) {
           // pt, eta, tagweight
           // uniaxis = false;
@@ -1198,32 +1102,23 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
           //     pt_bins, 5, 20,
           //     0.4, 0.5, 0.25);
           uniaxis = true;
+          ignore_tw_relationship = true;
           SetSmootherFor1D(smoother, order,
               pt_bins,
               pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
-        } else {
-          // pt vs. tagweight
+        } else if (shouldSmooth("C") || shouldSmooth("Tau")) {
+          // pt, eta, tagweight
+          // uniaxis = false;
+          // SetSmootherFor3D(smoother, order,
+          //     pt_bins, 5, 20,
+          //     0.4, 0.5, 0.25);
           uniaxis = true;
+          ignore_tw_relationship = true;
           SetSmootherFor1D(smoother, order,
               pt_bins,
               pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
-        }
-      }
-      else {
-        if (shouldSmooth("Light")) {
-          if (false) { // TODO: make as a switch
-            uniaxis = false;
-            SetSmootherFor2D(smoother, order,
-                5, pt_bins,
-                // 0.5, pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
-                0.5, 0.7);
-          } else {
-            uniaxis = true;
-            SetSmootherFor1D(smoother, order,
-                pt_bins,
-                pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
-          }
-        } else {
+        } else if (shouldSmooth("B")) {
+          // pt vs. tagweight
           uniaxis = true;
           SetSmootherFor1D(smoother, order,
               pt_bins,
@@ -1232,7 +1127,7 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
       }
 
       smoother.UseWeightedData(false);
-      if (!SmoothHistogram(total_systematics, efficiency, smoother, uniaxis, false)) {
+      if (!SmoothHistogram(total_systematics, efficiency, smoother, uniaxis, false, nullptr, ignore_tw_relationship)) {
         Fatal("smoothContinuousCalibrations", "unable to smooth \"systematics\" histogram - aborting...");
         return;
       }
@@ -1460,7 +1355,7 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
         Info("smoothContinuousCalibrations", "\t\tnumber of %s bins - %d", title, naxis_bins);
       }
 
-      if (!SmoothHistogram(result, efficiency, smoother, uniaxis, true, &cov)) {
+      if (!SmoothHistogram(result, efficiency, smoother, uniaxis, true, &cov, ignore_tw_relationship)) {
         Fatal("smoothContinuousCalibrations", "unable to smooth \"result\" histogram - aborting...");
         return;
       }
@@ -1492,7 +1387,7 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
         Info("smoothContinuousCalibrations", "\t\tnumber of smoothed %s bins - %d", title, naxis_bins);
       }
 
-      if (!SmoothHistogram(result_no_error, efficiency, smoother, uniaxis, true)) {
+      if (!SmoothHistogram(result_no_error, efficiency, smoother, uniaxis, true, nullptr, ignore_tw_relationship)) {
         Fatal("smoothContinuousCalibrations", "unable to smooth \"result\" (no bin errors) histogram - aborting...");
         return;
       }
@@ -1544,7 +1439,7 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
           //   if (smoother.GetDimension() == 1) --dim;
           //   Info("smoothContinuousCalibrations", "\t\tnumber of smoothed %s bins - %lu", title, smoother.GetNbins(dim));
           // }
-          TH1 *stat_nuis = GetNuisanceVariation(smoother, /*result_no_error, unsmoothed_result,*/ *stat_var, efficiency, bin, uniaxis);
+          TH1 *stat_nuis = GetNuisanceVariation(smoother, /*result_no_error, unsmoothed_result,*/ *stat_var, efficiency, bin, uniaxis, ignore_tw_relationship);
           stat_nuis->SetName(new_key->GetString().Data());
           stat_nuis->SetTitle(Form("stat_nuis_%d_of_%d", count, total_count));
 
@@ -1611,8 +1506,8 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
             //   Info("smoothContinuousCalibrations", "\t\tnumber of smoothed %s bins - %lu", title, smoother.GetNbins(dim));
             // }
 
-            GetNuisanceVariation(smoother, /*result_no_error, unsmoothed_result,*/ h, efficiency, -1, uniaxis);
-            GetNuisanceVariation(smoother, /*result_no_error, unsmoothed_result,*/ h_error, efficiency, -1, uniaxis);
+            GetNuisanceVariation(smoother, /*result_no_error, unsmoothed_result,*/ h, efficiency, -1, uniaxis, ignore_tw_relationship);
+            GetNuisanceVariation(smoother, /*result_no_error, unsmoothed_result,*/ h_error, efficiency, -1, uniaxis, ignore_tw_relationship);
 
             {
               auto nbins = GetTotalNbins(h);
@@ -1678,8 +1573,8 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
           //   Info("smoothContinuousCalibrations", "\t\tnumber of smoothed %s bins - %lu", title, smoother.GetNbins(dim));
           // }
 
-          TH1 *syst_nuis_error = GetNuisanceVariation(smoother, /*result_no_error, unsmoothed_result,*/ h_error, efficiency, bin, uniaxis);
-          TH1 *syst_nuis = GetNuisanceVariation(smoother, /*result_no_error, unsmoothed_result,*/ *syst_var, efficiency, bin, uniaxis);
+          TH1 *syst_nuis_error = GetNuisanceVariation(smoother, /*result_no_error, unsmoothed_result,*/ h_error, efficiency, bin, uniaxis, ignore_tw_relationship);
+          TH1 *syst_nuis = GetNuisanceVariation(smoother, /*result_no_error, unsmoothed_result,*/ *syst_var, efficiency, bin, uniaxis, ignore_tw_relationship);
           syst_nuis->SetName(new_key->GetString().Data());
           syst_nuis->SetTitle(Form("%s nuis %d_of_%d", k->GetString().Data(), count, total_count));
 

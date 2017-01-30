@@ -3,13 +3,13 @@ pt_bins=25
 #bandwidth="1.75"
 bandwidth="0.4"
 order=1
-#smooth_b_jets="false"
+# smooth_b_jets="false"
 smooth_b_jets="true"
 b_NP_set="5,3,2"
-#smooth_c_jets="false"
+# smooth_c_jets="false"
 smooth_c_jets="true"
 c_NP_set="4,4,3"
-#smooth_light_jets="false"
+# smooth_light_jets="false"
 smooth_light_jets="true"
 light_NP_set="12,5,4"
 
