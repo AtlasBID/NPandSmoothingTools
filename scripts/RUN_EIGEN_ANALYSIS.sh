@@ -2,9 +2,12 @@ pt_bins=25
 bandwidth="0.4"
 order=1
 smoothing_suffix="_smooth"
-nB_eigens=-1
-nC_eigens=-1
-nLight_eigens=-1
+# nB_eigens=-1
+nB_eigens=25
+# nC_eigens=-1
+nC_eigens=15
+# nLight_eigens=-1
+nLight_eigens=55
 
 echo "First arg: $1"
 arg="$(echo $1)"

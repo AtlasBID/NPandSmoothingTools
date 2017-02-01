@@ -507,11 +507,34 @@ bool SmoothHistogram (TH1             &unsmoothed,
 
         for (auto &eta_pair : smoothed_histos) {
           int eta_bin = eta_pair.first;
+          double eta_value =  eta_is_x ? h->GetXaxis()->GetBinCenter(eta_bin) :
+                              eta_is_y ? h->GetYaxis()->GetBinCenter(eta_bin) :
+                                         h->GetZaxis()->GetBinCenter(eta_bin);
           last_tw_bins->Reset();
 
           for (auto &tw_pair : eta_pair.second) {
             int tw_bin = tw_pair.first;
-            TH1 *hist = tw_pair.second; // pt bins
+            double tw_value = tw_is_x ? h->GetXaxis()->GetBinCenter(tw_bin) :
+                              tw_is_y ? h->GetYaxis()->GetBinCenter(tw_bin) :
+                                        h->GetZaxis()->GetBinCenter(tw_bin);
+            TH1 *hist = tw_pair.second; // smoothed pt bins
+            TH1 *eff_smooth = nullptr;
+            {
+              auto i = eta_bin,
+                   j = tw_bin;
+              if (eta_is_x && tw_is_y) eff_smooth = static_cast<TH3&>(eff).ProjectionZ("_pz", i, i, j, j); // assumes pt is z
+              else if (eta_is_y && tw_is_x) eff_smooth = static_cast<TH3&>(eff).ProjectionZ("_pz", j, j, i, i); // assumes pt is z
+              else if (eta_is_x && !tw_is_x && !tw_is_y) eff_smooth = static_cast<TH3&>(eff).ProjectionY("_py", i, i, j, j); // assumes pt is y
+              else if (!eta_is_x && !eta_is_y && tw_is_x) eff_smooth = static_cast<TH3&>(eff).ProjectionY("_py", j, j, i, i); // assumes pt is y
+              else if (eta_is_y && !tw_is_x && !tw_is_y) eff_smooth = static_cast<TH3&>(eff).ProjectionX("_px", i, i, j, j); // assumes pt is x
+              else if (!eta_is_y && !eta_is_x && tw_is_y) eff_smooth = static_cast<TH3&>(eff).ProjectionX("_px", j, j, i, i); // assumes pt is x
+
+              eff_smooth->SetDirectory(0);
+              smoother.LoadData(*eff_smooth, false);
+              delete eff_smooth;
+              eff_smooth = static_cast<TH1*>(smoother.MakeSmoothedTH1());
+              eff_smooth->SetDirectory(0);
+            }
 
             // Actually fill bins
             for (int pt_bin = 1; pt_bin <= hist->GetNbinsX(); ++pt_bin) {
@@ -524,14 +547,17 @@ bool SmoothHistogram (TH1             &unsmoothed,
 
               // NOTE: do tag weight axis restriction
               double pt_value = hist->GetXaxis()->GetBinCenter(pt_bin);
-              int unsmoothed_pt_bin = eff.GetXaxis()->FindBin(pt_value);
+              int unsmoothed_pt_bin = !eta_is_x && !tw_is_x ? eff.GetXaxis()->FindBin(pt_value) :
+                                      !eta_is_y && !tw_is_y ? eff.GetYaxis()->FindBin(pt_value) :
+                                      eff.GetZaxis()->FindBin(pt_value);
               int local_global_bin = eta_is_x && !tw_is_x && !tw_is_y ? eff.GetBin(eta_bin, unsmoothed_pt_bin, tw_bin) :
                                      eta_is_x && tw_is_y ? eff.GetBin(eta_bin, tw_bin, unsmoothed_pt_bin) :
                                      eta_is_y && tw_is_x ? eff.GetBin(tw_bin, eta_bin, unsmoothed_pt_bin) :
                                      eta_is_y && !tw_is_x && !tw_is_y ? eff.GetBin(unsmoothed_pt_bin, eta_bin, tw_bin) :
                                      tw_is_x ? eff.GetBin(tw_bin, unsmoothed_pt_bin, eta_bin) :
                                      /*tw_is_y ?*/ eff.GetBin(unsmoothed_pt_bin, tw_bin, eta_bin);
-              double local_eff = eff.GetBinContent(local_global_bin);
+              // double local_eff = eff.GetBinContent(local_global_bin);
+              double local_eff = eff_smooth->GetBinContent(pt_bin);
               if (tw_bin == tw_axis->GetNbins() && is_nominal) {
                 if (!ignore_tw_relationship) {
                   h->SetBinContent(global_bin, (1.0 - last_tw_bins->GetBinContent(pt_bin))/local_eff);
@@ -554,6 +580,8 @@ bool SmoothHistogram (TH1             &unsmoothed,
               //   std::cout << "JWH: eff = " << local_eff << std::endl;
               // }
             }
+
+            delete eff_smooth;
           }
         }
 
@@ -985,13 +1013,15 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
                                              std::vector<int> cNPset,
                                              std::vector<int> lightNPset,
                                              unsigned pt_bins,
-                                             float    pt_smoothing,
+                                             float    b_pt_smoothing,
+                                             float    c_pt_smoothing,
+                                             float    light_pt_smoothing,
                                              size_t   order,
                                              bool     smoothB,
                                              bool     smoothC,
                                              bool     smoothLight)
 {
-  TString output_tag = TString::Format("_order_%zu_smoothing_%g_ptbins_%u", order, pt_smoothing, pt_bins),
+  TString output_tag = TString::Format("_order_%zu_smoothing_%g_%g_%g_ptbins_%u", order, b_pt_smoothing, c_pt_smoothing, light_pt_smoothing, pt_bins),
   new_file_name(fileName);
   KernelSmoother smoother;
   set<string>    toSmooth;
@@ -1102,10 +1132,10 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
           //     pt_bins, 5, 20,
           //     0.4, 0.5, 0.25);
           uniaxis = true;
-          ignore_tw_relationship = true;
+          // ignore_tw_relationship = true;
           SetSmootherFor1D(smoother, order,
               pt_bins,
-              pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
+              light_pt_smoothing == -1.0 ? 0.4 : light_pt_smoothing);
         } else if (shouldSmooth("C") || shouldSmooth("Tau")) {
           // pt, eta, tagweight
           // uniaxis = false;
@@ -1113,16 +1143,16 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
           //     pt_bins, 5, 20,
           //     0.4, 0.5, 0.25);
           uniaxis = true;
-          ignore_tw_relationship = true;
+          // ignore_tw_relationship = true;
           SetSmootherFor1D(smoother, order,
               pt_bins,
-              pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
+              c_pt_smoothing == -1.0 ? 0.4 : c_pt_smoothing);
         } else if (shouldSmooth("B")) {
           // pt vs. tagweight
           uniaxis = true;
           SetSmootherFor1D(smoother, order,
               pt_bins,
-              pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
+              b_pt_smoothing == -1.0 ? 0.4 : b_pt_smoothing);
         }
       }
 
