@@ -7,13 +7,13 @@ light_bandwidth="0.7"
 order=1
 # smooth_b_jets="false"
 smooth_b_jets="true"
-b_NP_set="5,3,2"
+b_NP_set="30,27,15"
 # smooth_c_jets="false"
 smooth_c_jets="true"
-c_NP_set="4,4,3"
+c_NP_set="20,15,10"
 # smooth_light_jets="false"
 smooth_light_jets="true"
-light_NP_set="12,5,4"
+light_NP_set="60,50,30"
 
 # 13TeV
 

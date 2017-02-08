@@ -988,6 +988,7 @@ void Analysis::smoothCalibrations (TString      fileName,
              directory_name(TString(full_name).Remove(full_name.Last('/'))),
              class_name(o->ClassName()),
              key_name(TString(full_name).Remove(0, full_name.Last('/') + 1));
+    // CalibrationDataHistogramContainer *c = static_cast<CalibrationDataHistogramContainer*>(o);
 
     auto shouldSmooth = [&full_name, &class_name, &toSmooth, &flavorInfo](string tag) -> bool {
                           bool result = false;
@@ -1581,6 +1582,40 @@ void Analysis::smoothCalibrations (TString      fileName,
       delete &result_no_error;
       delete &unsmoothed_result;
     }
+    else if (class_name == "Analysis::CalibrationDataHistogramContainer") {
+      CalibrationDataHistogramContainer *c = static_cast<CalibrationDataHistogramContainer*>(o);
+      
+      // set reduction list
+      if (full_name.Contains(("/" + flavorInfo["B"].fileTag + "/").c_str())) {
+        TVectorD *reductionSets = new TVectorD(2);
+        (*reductionSets)[0] = flavorInfo["B"].tight;
+        (*reductionSets)[1] = flavorInfo["B"].medium;
+        TObjString *str = new TObjString("ReducedSets");
+        c->Add(str, reductionSets);
+      }
+      else if (full_name.Contains(("/" + flavorInfo["C"].fileTag + "/").c_str())) {
+        TVectorD *reductionSets = new TVectorD(2);
+        (*reductionSets)[0] = flavorInfo["C"].tight;
+        (*reductionSets)[1] = flavorInfo["C"].medium;
+        TObjString *str = new TObjString("ReducedSets");
+        c->Add(str, reductionSets);
+      }
+      else if (full_name.Contains(("/" + flavorInfo["Tau"].fileTag + "/").c_str())) {
+        TVectorD *reductionSets = new TVectorD(2);
+        (*reductionSets)[0] = flavorInfo["Tau"].tight;
+        (*reductionSets)[1] = flavorInfo["Tau"].medium;
+        TObjString *str = new TObjString("ReducedSets");
+        c->Add(str, reductionSets);
+      }
+      else if (full_name.Contains(("/" + flavorInfo["Light"].fileTag + "/").c_str())) {
+        TVectorD *reductionSets = new TVectorD(2);
+        (*reductionSets)[0] = flavorInfo["Light"].tight;
+        (*reductionSets)[1] = flavorInfo["Light"].medium;
+        TObjString *str = new TObjString("ReducedSets");
+        c->Add(str, reductionSets);
+      }
+    }
+
 
     // cd to correct directory and write calibration data
     of->cd(directory_name);
