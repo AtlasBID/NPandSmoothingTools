@@ -13,7 +13,7 @@ smooth_c_jets="true"
 c_NP_set="20,15,10"
 # smooth_light_jets="false"
 smooth_light_jets="true"
-light_NP_set="60,50,30"
+light_NP_set="60,45,30"
 
 # 13TeV
 

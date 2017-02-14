@@ -1114,14 +1114,9 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
       TList                              syst_nuis_names;
       TIterator                         *itt = c->MakeIterator();
       TObjString                        *k;
-      TH1                               &result = *static_cast<TH1*>((*c)("result")),
-      &result_no_error                          = *static_cast<TH1*>((*c)("result")->Clone()),
-      &unsmoothed_result                        = *static_cast<TH1*>((*c)("result")->Clone()),
-      &total_systematics                        = *static_cast<TH1*>((*c)("systematics")),
-      &efficiency                               = *static_cast<TH1*>((*eff)("result"));
-
-      result_no_error.SetDirectory(0);
-      unsmoothed_result.SetDirectory(0);
+      TH1                               &result               = *static_cast<TH1*>((*c)("result")),
+                                        &total_systematics    = *static_cast<TH1*>((*c)("systematics")),
+                                        &efficiency           = *static_cast<TH1*>((*eff)("result"));
 
       // if (directory_name.Contains("continuous")) {
       if (directory_name.Contains("Continuous") || directory_name.Contains("continuous")) {
@@ -1155,6 +1150,57 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
               b_pt_smoothing == -1.0 ? 0.4 : b_pt_smoothing);
         }
       }
+
+      if ((TString(result.GetXaxis()->GetTitle()) == "pt" && result.GetXaxis()->GetNbins() <= order && uniaxis) ||
+          (TString(result.GetYaxis()->GetTitle()) == "pt" && result.GetYaxis()->GetNbins() <= order && uniaxis) ||
+          (TString(result.GetZaxis()->GetTitle()) == "pt" && result.GetZaxis()->GetNbins() <= order && uniaxis)) {
+
+        int nbins = (result.GetXaxis()->GetNbins() > 0 ? result.GetXaxis()->GetNbins() : 1)*
+                    (result.GetYaxis()->GetNbins() > 0 ? result.GetYaxis()->GetNbins() : 1)*
+                    (result.GetZaxis()->GetNbins() > 0 ? result.GetZaxis()->GetNbins() : 1);
+        medium_too_few_pt_points = nbins;
+        tight_too_few_pt_points = nbins;
+
+        // set reduction list
+        if (full_name.Contains(("/" + flavorInfo["B"].fileTag + "/").c_str())) {
+          TVectorD *reductionSets = new TVectorD(2);
+          (*reductionSets)[0] = tight_too_few_pt_points;
+          (*reductionSets)[1] = medium_too_few_pt_points;
+          TObjString *str = new TObjString("ReducedSets");
+          c->Add(str, reductionSets);
+        }
+        else if (full_name.Contains(("/" + flavorInfo["C"].fileTag + "/").c_str())) {
+          TVectorD *reductionSets = new TVectorD(2);
+          (*reductionSets)[0] = tight_too_few_pt_points;
+          (*reductionSets)[1] = medium_too_few_pt_points;
+          TObjString *str = new TObjString("ReducedSets");
+          c->Add(str, reductionSets);
+        }
+        else if (full_name.Contains(("/" + flavorInfo["Tau"].fileTag + "/").c_str())) {
+          TVectorD *reductionSets = new TVectorD(2);
+          (*reductionSets)[0] = tight_too_few_pt_points;
+          (*reductionSets)[1] = medium_too_few_pt_points;
+          TObjString *str = new TObjString("ReducedSets");
+          c->Add(str, reductionSets);
+        }
+        else if (full_name.Contains(("/" + flavorInfo["Light"].fileTag + "/").c_str())) {
+          TVectorD *reductionSets = new TVectorD(2);
+          (*reductionSets)[0] = tight_too_few_pt_points;
+          (*reductionSets)[1] = medium_too_few_pt_points;
+          TObjString *str = new TObjString("ReducedSets");
+          c->Add(str, reductionSets);
+        }
+
+        Warning("smoothContinuousCalibrations", "calibration has too few bins to smooth!");
+
+        continue;
+      }
+
+      TH1                               &result_no_error      = *static_cast<TH1*>((*c)("result")->Clone()),
+                                        &unsmoothed_result    = *static_cast<TH1*>((*c)("result")->Clone());
+
+      result_no_error.SetDirectory(0);
+      unsmoothed_result.SetDirectory(0);
 
       smoother.UseWeightedData(false);
       if (!SmoothHistogram(total_systematics, efficiency, smoother, uniaxis, false, nullptr, ignore_tw_relationship)) {
