@@ -1093,6 +1093,12 @@ void Analysis::smoothCalibrations (TString      fileName,
 	
 	Warning("smoothCalibrations", "calibration has too few bins to smooth!");
 
+	// Storing calibration data into the CDI
+	of->cd(directory_name);
+	Info("smoothCalibrations", "Storing calibration data %s", key_name.Data());
+	o->Write(key_name.Data(), TObject::kSingleKey);
+	of->cd();
+
 	continue;
       }
       
