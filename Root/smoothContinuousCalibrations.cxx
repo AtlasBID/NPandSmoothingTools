@@ -1158,8 +1158,8 @@ void Analysis::smoothContinuousCalibrations (TString  fileName,
         int nbins = (result.GetXaxis()->GetNbins() > 0 ? result.GetXaxis()->GetNbins() : 1)*
                     (result.GetYaxis()->GetNbins() > 0 ? result.GetYaxis()->GetNbins() : 1)*
                     (result.GetZaxis()->GetNbins() > 0 ? result.GetZaxis()->GetNbins() : 1);
-        medium_too_few_pt_points = nbins;
-        tight_too_few_pt_points = nbins;
+        int medium_too_few_pt_points = nbins;
+        int tight_too_few_pt_points = nbins;
 
         // set reduction list
         if (full_name.Contains(("/" + flavorInfo["B"].fileTag + "/").c_str())) {
