@@ -64,16 +64,6 @@ namespace {
 
 // dynamic
 using KernelSmoother = Analysis::DynamicHistogramSmoother;
-// using KernelSmoother = Analysis::HistogramSmoother<double,
-//                                                    Analysis::DynamicKernelPolicy,
-//                                                    Analysis::GlobalBandwidthPolicy,
-//                                                    Analysis::DynamicScalingPolicy>;
-
-// static
-// using KernelSmoother = Analysis::HistogramSmoother<double,
-//       Analysis::NormalKernelPolicy,
-//       Analysis::GlobalBandwidthPolicy,
-//       Analysis::LnScalingPolicy>;
 
 string kernel = "Normal";
 /*
@@ -369,24 +359,25 @@ bool SmoothHistogram (TH1            &unsmoothed,
   // 3D Histogram
   // ///////////////////////////
   if (ndim == 3) {
-    auto        *h        = static_cast<TH3*>(&unsmoothed);
-    TAxis       *pt_axis  = nullptr,
-                *eta_axis = nullptr,
-                *tw_axis  = nullptr;
+
+    auto  *h        = static_cast<TH3*>(&unsmoothed);
+    TAxis *eta_axis = nullptr;
+
     bool smooth_errors = smoother.UsingWeightedData(),
          eta_is_x      = false,
          eta_is_y      = false;
 
     // get axis information
-    if (TString(h->GetXaxis()->GetTitle()) == "pt") {
-      pt_axis    = h->GetXaxis();
-    }
-    else if (TString(h->GetYaxis()->GetTitle()) == "pt") {
-      pt_axis    = h->GetYaxis();
-    }
-    else {
-      pt_axis    = h->GetZaxis();
-    }
+    //if (TString(h->GetXaxis()->GetTitle()) == "pt") {
+    //  pt_axis    = h->GetXaxis();
+    //}
+    //else if (TString(h->GetYaxis()->GetTitle()) == "pt") {
+    //  pt_axis    = h->GetYaxis();
+    //}
+    //else {
+    //  pt_axis    = h->GetZaxis();
+    //}
+
     if (TString(h->GetXaxis()->GetTitle()) == "eta" ||
         TString(h->GetXaxis()->GetTitle()) == "abseta") {
       eta_axis    = h->GetXaxis();
@@ -400,15 +391,16 @@ bool SmoothHistogram (TH1            &unsmoothed,
     else {
       eta_axis    = h->GetZaxis();
     }
-    if (TString(h->GetXaxis()->GetTitle()) == "tagweight") {
-      tw_axis    = h->GetXaxis();
-    }
-    else if (TString(h->GetYaxis()->GetTitle()) == "tagweight") {
-      tw_axis    = h->GetYaxis();
-    }
-    else {
-      tw_axis    = h->GetZaxis();
-    }
+
+    //if (TString(h->GetXaxis()->GetTitle()) == "tagweight") {
+    //  tw_axis    = h->GetXaxis();
+    //}
+    //else if (TString(h->GetYaxis()->GetTitle()) == "tagweight") {
+    //  tw_axis    = h->GetYaxis();
+    //}
+    //else {
+    //  tw_axis    = h->GetZaxis();
+    //}
 
     for (int i = 0; i <= nbins; ++i) {
       if (!h->IsBinOverflow(i) && !h->IsBinUnderflow(i) &&
@@ -516,8 +508,8 @@ bool SmoothHistogram (TH1            &unsmoothed,
     auto h             = static_cast<TH2*>(&unsmoothed);
     bool x_is_pt       = false,
          smooth_errors = smoother.UsingWeightedData();
-    TAxis *pt_axis     = nullptr,
-          *other_axis  = nullptr;
+    TAxis *pt_axis     = nullptr;
+    TAxis *other_axis  = nullptr;
 
     // get axis information
     if (TString(h->GetXaxis()->GetTitle()) == "pt") {
@@ -620,19 +612,15 @@ bool SmoothHistogram (TH1            &unsmoothed,
               }
             }
             auto HH = H*H.T();
-            double trace_HH = 0.0,
-                   trace_H  = 0.0,
-                   trace_2H_HH  = 0.0;
+            double trace_HH = 0.0;
+	    double trace_H  = 0.0;
 
             for (Int_t ii = 0; ii < HH.GetNrows(); ++ii) {
               trace_HH += HH(ii, ii);
               trace_H += H(ii, ii);
             }
-            trace_2H_HH = 2.0*trace_H - trace_HH;
 
-            // effDoF[ibandwidth] = trace_H;
             effDoF[ibandwidth] = trace_HH;
-            // effDoF[ibandwidth] = trace_2H_HH;
             chi2red[ibandwidth] = chi2[ibandwidth]/effDoF[ibandwidth];
             prob[ibandwidth] = 1.0 - TMath::Prob(chi2[ibandwidth], effDoF[ibandwidth]);
             if (chired_optimal > TMath::Abs(1.0 - chi2red[ibandwidth])) {
@@ -980,352 +968,345 @@ void Analysis::smoothCalibrations (TString      fileName,
   // TODO:
   // loop through histograms and find optimal width here
 
-
   // loop through all calibration data containers
   for (data_map_t::iterator it = data_containers.begin(); it != data_containers.end(); ++it) {
+
     TObject *o = it->second;
-    TString  full_name(it->first),
-             directory_name(TString(full_name).Remove(full_name.Last('/'))),
-             class_name(o->ClassName()),
-             key_name(TString(full_name).Remove(0, full_name.Last('/') + 1));
+    TString  full_name(it->first);
+    TString directory_name(TString(full_name).Remove(full_name.Last('/')));
+    TString class_name(o->ClassName());
+    TString key_name(TString(full_name).Remove(0, full_name.Last('/') + 1));
+
     // CalibrationDataHistogramContainer *c = static_cast<CalibrationDataHistogramContainer*>(o);
 
     auto shouldSmooth = [&full_name, &class_name, &toSmooth, &flavorInfo](string tag) -> bool {
-                          bool result = false;
+      bool result = false;
 
-                          for (auto key : toSmooth) {
-                            result = result || (class_name == "Analysis::CalibrationDataHistogramContainer" &&
-                                                // full_name.EndsWith(("/" + flavorInfo[tag].fileTag + "/" + key).c_str()) &&
-                                                full_name.Contains(TRegexp(("/" + flavorInfo[tag].fileTag + "/" + key).c_str())) &&
-                                                !full_name.Contains("Continuous") &&
-                                                flavorInfo[tag].smooth);
-                          }
-                          return result;
-                        };
+      for (auto key : toSmooth) {
+	result = result || (class_name == "Analysis::CalibrationDataHistogramContainer" &&
+			    full_name.Contains(TRegexp(("/" + flavorInfo[tag].fileTag + "/" + key).c_str())) &&
+			    !full_name.Contains("Continuous") &&
+			    flavorInfo[tag].smooth);
 
-    // smooth histograms if necessary
+	//Info("smoothCalibrations", "AACC shouldSmooth %s", full_name.Contains(TRegexp(("/" + flavorInfo[tag].fileTag + "/" + key).c_str())));
+      }
+      return result;
+    };
+
+    // smooth histograms only if necessary
     if (shouldSmooth("B") || shouldSmooth("C") || shouldSmooth("Tau") || shouldSmooth("Light")) {
-      auto uniaxis                         = false;
+      
+      auto uniaxis = false;
       CalibrationDataHistogramContainer *c = static_cast<CalibrationDataHistogramContainer*>(o);
-      TList                              syst_nuis_names;
-      TIterator                         *itt = c->MakeIterator();
-      TObjString                        *k;
-      // if (TString(h->GetXaxis()->GetTitle()) == "pt") {
-      int                                medium_too_few_pt_points, tight_too_few_pt_points;
-      TH1                               &result             = *static_cast<TH1*>((*c)("result")),
-                                        &total_systematics  = *static_cast<TH1*>((*c)("systematics"));
-
+      
+      TList syst_nuis_names;
+      TIterator *itt = c->MakeIterator();
+      TObjString *k;
+      
+      int medium_too_few_pt_points;
+      int tight_too_few_pt_points;
+      
+      TH1 &result             = *static_cast<TH1*>((*c)("result"));
+      TH1 &total_systematics  = *static_cast<TH1*>((*c)("systematics"));
+      
       if (directory_name.Contains("continuous")) {
-        if (shouldSmooth("Light")) {
-          // pt, eta, tagweight
-          // uniaxis = false;
-          // SetSmootherFor3D(smoother, order,
-          //     pt_bins, 5, 20,
-          //     0.4, 0.5, 0.25);
-          uniaxis = true;
-          SetSmootherFor2D(smoother, order,
-              20, pt_bins,
-              // 0.5, pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
-              0.15, 0.425);
-        } else {
-          // pt vs. tagweight
-          uniaxis = true;
-          SetSmootherFor2D(smoother, order,
-              20, pt_bins,
-              // 0.5, pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
-              0.15, 0.425);
-        }
+	if (shouldSmooth("Light")) {
+	  // pt, eta, tagweight
+	  // uniaxis = false;
+	  // SetSmootherFor3D(smoother, order,
+	  //     pt_bins, 5, 20,
+	  //     0.4, 0.5, 0.25);
+	  uniaxis = true;
+	  SetSmootherFor2D(smoother, order,
+			   20, pt_bins,
+			   // 0.5, pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
+			   0.15, 0.425);
+	} else {
+	  // pt vs. tagweight
+	  uniaxis = true;
+	  SetSmootherFor2D(smoother, order,
+			   20, pt_bins,
+			   // 0.5, pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
+			   0.15, 0.425);
+	}
+      } else {
+	if (shouldSmooth("Light")) {
+	  if (false) { // TODO: make as a switch
+	    uniaxis = false;
+	    SetSmootherFor2D(smoother, order,
+			     5, pt_bins,
+			     // 0.5, pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
+			     0.5, 0.7);
+	  } else {
+	    uniaxis = true;
+	    SetSmootherFor1D(smoother, order,
+			     pt_bins,
+			     pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
+	  }
+	} else {
+	  uniaxis = true;
+	  SetSmootherFor1D(smoother, order,
+			   pt_bins,
+			   pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
+	}
       }
-      else {
-        if (shouldSmooth("Light")) {
-          if (false) { // TODO: make as a switch
-            uniaxis = false;
-            SetSmootherFor2D(smoother, order,
-                5, pt_bins,
-                // 0.5, pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
-                0.5, 0.7);
-          } else {
-            uniaxis = true;
-            SetSmootherFor1D(smoother, order,
-                pt_bins,
-                pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
-          }
-        } else {
-          uniaxis = true;
-          SetSmootherFor1D(smoother, order,
-              pt_bins,
-              pt_smoothing == -1.0 ? 0.4 : pt_smoothing);
-        }
+      
+      if ((TString(result.GetXaxis()->GetTitle()) == "pt" && result.GetXaxis()->GetNbins() <= (signed int)order && uniaxis) ||
+	  (TString(result.GetYaxis()->GetTitle()) == "pt" && result.GetYaxis()->GetNbins() <= (signed int)order && uniaxis) ||
+	  (TString(result.GetZaxis()->GetTitle()) == "pt" && result.GetZaxis()->GetNbins() <= (signed int)order && uniaxis)) {
+	
+	int nbins = (result.GetXaxis()->GetNbins() > 0 ? result.GetXaxis()->GetNbins() : 1)*
+	  (result.GetYaxis()->GetNbins() > 0 ? result.GetYaxis()->GetNbins() : 1)*
+	  (result.GetZaxis()->GetNbins() > 0 ? result.GetZaxis()->GetNbins() : 1);
+	medium_too_few_pt_points = nbins;
+	tight_too_few_pt_points = nbins;
+	
+	// set reduction list
+	if (full_name.Contains(("/" + flavorInfo["B"].fileTag + "/").c_str())) {
+	  TVectorD *reductionSets = new TVectorD(2);
+	  (*reductionSets)[0] = tight_too_few_pt_points;
+	  (*reductionSets)[1] = medium_too_few_pt_points;
+	  TObjString *str = new TObjString("ReducedSets");
+	  c->Add(str, reductionSets);
+	}
+	else if (full_name.Contains(("/" + flavorInfo["C"].fileTag + "/").c_str())) {
+	  TVectorD *reductionSets = new TVectorD(2);
+	  (*reductionSets)[0] = tight_too_few_pt_points;
+	  (*reductionSets)[1] = medium_too_few_pt_points;
+	  TObjString *str = new TObjString("ReducedSets");
+	  c->Add(str, reductionSets);
+	}
+	else if (full_name.Contains(("/" + flavorInfo["Tau"].fileTag + "/").c_str())) {
+	  TVectorD *reductionSets = new TVectorD(2);
+	  (*reductionSets)[0] = tight_too_few_pt_points;
+	  (*reductionSets)[1] = medium_too_few_pt_points;
+	  TObjString *str = new TObjString("ReducedSets");
+	  c->Add(str, reductionSets);
+	}
+	else if (full_name.Contains(("/" + flavorInfo["Light"].fileTag + "/").c_str())) {
+	  TVectorD *reductionSets = new TVectorD(2);
+	  (*reductionSets)[0] = tight_too_few_pt_points;
+	  (*reductionSets)[1] = medium_too_few_pt_points;
+	  TObjString *str = new TObjString("ReducedSets");
+	  c->Add(str, reductionSets);
+	}
+	
+	Warning("smoothCalibrations", "calibration has too few bins to smooth!");
+
+	continue;
       }
-
-      if ((TString(result.GetXaxis()->GetTitle()) == "pt" && result.GetXaxis()->GetNbins() <= order && uniaxis) ||
-          (TString(result.GetYaxis()->GetTitle()) == "pt" && result.GetYaxis()->GetNbins() <= order && uniaxis) ||
-          (TString(result.GetZaxis()->GetTitle()) == "pt" && result.GetZaxis()->GetNbins() <= order && uniaxis)) {
-
-        int nbins = (result.GetXaxis()->GetNbins() > 0 ? result.GetXaxis()->GetNbins() : 1)*
-                    (result.GetYaxis()->GetNbins() > 0 ? result.GetYaxis()->GetNbins() : 1)*
-                    (result.GetZaxis()->GetNbins() > 0 ? result.GetZaxis()->GetNbins() : 1);
-        medium_too_few_pt_points = nbins;
-        tight_too_few_pt_points = nbins;
-
-        // set reduction list
-        if (full_name.Contains(("/" + flavorInfo["B"].fileTag + "/").c_str())) {
-          TVectorD *reductionSets = new TVectorD(2);
-          (*reductionSets)[0] = tight_too_few_pt_points;
-          (*reductionSets)[1] = medium_too_few_pt_points;
-          TObjString *str = new TObjString("ReducedSets");
-          c->Add(str, reductionSets);
-        }
-        else if (full_name.Contains(("/" + flavorInfo["C"].fileTag + "/").c_str())) {
-          TVectorD *reductionSets = new TVectorD(2);
-          (*reductionSets)[0] = tight_too_few_pt_points;
-          (*reductionSets)[1] = medium_too_few_pt_points;
-          TObjString *str = new TObjString("ReducedSets");
-          c->Add(str, reductionSets);
-        }
-        else if (full_name.Contains(("/" + flavorInfo["Tau"].fileTag + "/").c_str())) {
-          TVectorD *reductionSets = new TVectorD(2);
-          (*reductionSets)[0] = tight_too_few_pt_points;
-          (*reductionSets)[1] = medium_too_few_pt_points;
-          TObjString *str = new TObjString("ReducedSets");
-          c->Add(str, reductionSets);
-        }
-        else if (full_name.Contains(("/" + flavorInfo["Light"].fileTag + "/").c_str())) {
-          TVectorD *reductionSets = new TVectorD(2);
-          (*reductionSets)[0] = tight_too_few_pt_points;
-          (*reductionSets)[1] = medium_too_few_pt_points;
-          TObjString *str = new TObjString("ReducedSets");
-          c->Add(str, reductionSets);
-        }
-
-        Warning("smoothCalibrations", "calibration has too few bins to smooth!");
-
-        continue;
-      }
-
-      TH1                               &result_no_error    = *static_cast<TH1*>((*c)("result")->Clone()),
-                                        &unsmoothed_result  = *static_cast<TH1*>((*c)("result")->Clone());
-
+      
+      TH1 &result_no_error    = *static_cast<TH1*>((*c)("result")->Clone());
+      TH1 &unsmoothed_result  = *static_cast<TH1*>((*c)("result")->Clone());
+      
       result_no_error.SetDirectory(0);
       unsmoothed_result.SetDirectory(0);
-
+      
       smoother.UseWeightedData(false);
       if (!SmoothHistogram(total_systematics, smoother, uniaxis)) {
-        Fatal("smoothCalibrations", "unable to smooth \"systematics\" histogram - aborting...");
-        return;
+	Fatal("smoothCalibrations", "unable to smooth \"systematics\" histogram - aborting...");
+	return;
       }
       total_systematics.Reset();
-
+      
       // rebin extrapolation in regions that kinematically overlap with all other systematics
       if (c->Contains("extrapolation")) {
-        Info("smoothCalibrations", "modifying extrapolation uncertainties to match number of bins in systematic \"overlap\" region");
-        auto &extrapolation     = *static_cast<TH1*>((*c)("extrapolation")),
-             &ref_extrapolation = *static_cast<TH1*>((*c)("extrapolation")->Clone());
-        ref_extrapolation.SetDirectory(0);
-        auto ndim = ref_extrapolation.GetDimension();
-        auto xmin_new = 0.0,
-             xmax_new = 0.0,
-             ymin_new = 0.0,
-             ymax_new = 0.0,
-             zmin_new = 0.0,
-             zmax_new = 0.0;
-
-        for (auto dim = 1; dim <= ndim; ++dim) {
-          double new_xmin = 0.0, new_xmax = 0.0;
-          vector<Double_t> new_bins;
-          TAxis *perm_axis = nullptr,
-                *new_axis = nullptr;
-
-          if (dim == 1) {
-            perm_axis = extrapolation.GetXaxis();
-            new_axis = total_systematics.GetXaxis();
-            xmin_new = new_axis->GetXmin();
-            xmax_new = new_axis->GetXmax();
-          }
-          if (dim == 2) {
-            perm_axis = extrapolation.GetYaxis();
-            new_axis = total_systematics.GetYaxis();
-            ymin_new = new_axis->GetXmin();
-            ymax_new = new_axis->GetXmax();
-          }
-          if (dim == 3) {
-            perm_axis = extrapolation.GetZaxis();
-            new_axis = total_systematics.GetZaxis();
-            zmin_new = new_axis->GetXmin();
-            zmax_new = new_axis->GetXmax();
-          }
-
-          new_xmin = new_axis->GetXmin();
-          new_xmax = new_axis->GetXmax();
-
-          if (perm_axis->GetNbins() == new_axis->GetNbins()) continue;
-
-          bool filled_with_new = false;
-          for (auto perm_bin = 0; perm_bin <= perm_axis->GetNbins(); ++perm_bin) {
-            auto perm_value = (*perm_axis->GetXbins())[perm_bin];
-            // the additional tolerance protection is due to small numerical differences in bin ranges
-            if (perm_value - new_xmin < -smoother.GetTol() || perm_value - new_xmax > smoother.GetTol())
-              new_bins.push_back(perm_value);
-            else if (!filled_with_new) {
-              for (auto new_bin = 0; new_bin <= new_axis->GetNbins(); ++new_bin)
-                new_bins.push_back((*new_axis->GetXbins())[new_bin]);
-              filled_with_new = true;
-            }
-          }
-
-          Double_t *raw_new_bins = new Double_t[new_bins.size()];
-          auto i = 0;
-          for (auto val : new_bins)
-            raw_new_bins[i++] = val;
-          perm_axis->Set(new_bins.size() - 1, raw_new_bins);
-
-        }
-
-        if (ndim == 1) {
-          extrapolation.SetBins(extrapolation.GetXaxis()->GetNbins(), extrapolation.GetXaxis()->GetXbins()->GetArray());
-          for (auto xbin = 1; xbin <= extrapolation.GetNbinsX(); ++xbin) {
-            auto gbin = extrapolation.GetBin(xbin);
-            auto xcenter = extrapolation.GetXaxis()->GetBinCenter(xbin);
-            bool x_is_zero = ((total_systematics.GetXaxis()->FindFixBin(xcenter) <= total_systematics.GetNbinsX()) &&
-                              (total_systematics.GetXaxis()->FindFixBin(xcenter) >= 1));
-            if (x_is_zero) extrapolation.SetBinContent(gbin, 0.0);
-            else extrapolation.SetBinContent(gbin, ref_extrapolation.GetBinContent(ref_extrapolation.FindFixBin(xcenter)));
-            extrapolation.SetBinError(gbin, extrapolation.GetBinContent(gbin));
-          }
-        }
-        else if (ndim == 2) {
-          extrapolation.SetBins(extrapolation.GetXaxis()->GetNbins(), extrapolation.GetXaxis()->GetXbins()->GetArray(),
-                                extrapolation.GetYaxis()->GetNbins(), extrapolation.GetYaxis()->GetXbins()->GetArray());
-          for (auto xbin = 1; xbin <= extrapolation.GetNbinsX(); ++xbin) {
-            for (auto ybin = 1; ybin <= extrapolation.GetNbinsY(); ++ybin) {
-              auto gbin = extrapolation.GetBin(xbin, ybin);
-              auto xcenter = extrapolation.GetXaxis()->GetBinCenter(xbin),
-                   ycenter = extrapolation.GetYaxis()->GetBinCenter(ybin);
-              bool x_is_zero = ((total_systematics.GetXaxis()->FindFixBin(xcenter) <= total_systematics.GetNbinsX()) &&
-                                (total_systematics.GetXaxis()->FindFixBin(xcenter) >= 1)),
-                   y_is_zero = ((total_systematics.GetYaxis()->FindFixBin(ycenter) <= total_systematics.GetNbinsY()) &&
-                                (total_systematics.GetYaxis()->FindFixBin(ycenter) >= 1));
-              if (x_is_zero && y_is_zero) extrapolation.SetBinContent(gbin, 0.0);
-              else extrapolation.SetBinContent(gbin, ref_extrapolation.GetBinContent(ref_extrapolation.FindFixBin(xcenter, ycenter)));
-              extrapolation.SetBinError(gbin, extrapolation.GetBinContent(gbin));
-            }
-          }
-        }
-        else if (ndim == 3) {
-          extrapolation.SetBins(extrapolation.GetXaxis()->GetNbins(), extrapolation.GetXaxis()->GetXbins()->GetArray(),
-                                extrapolation.GetYaxis()->GetNbins(), extrapolation.GetYaxis()->GetXbins()->GetArray(),
-                                extrapolation.GetZaxis()->GetNbins(), extrapolation.GetZaxis()->GetXbins()->GetArray());
-          for (auto xbin = 1; xbin <= extrapolation.GetNbinsX(); ++xbin) {
-            for (auto ybin = 1; ybin <= extrapolation.GetNbinsY(); ++ybin) {
-              for (auto zbin = 1; zbin <= extrapolation.GetNbinsZ(); ++zbin) {
-                auto gbin = extrapolation.GetBin(xbin, ybin, zbin);
-                auto xcenter = extrapolation.GetXaxis()->GetBinCenter(xbin),
-                     ycenter = extrapolation.GetYaxis()->GetBinCenter(ybin),
-                     zcenter = extrapolation.GetZaxis()->GetBinCenter(zbin);
-                bool x_is_zero = ((total_systematics.GetXaxis()->FindFixBin(xcenter) <= total_systematics.GetNbinsX()) &&
-                                  (total_systematics.GetXaxis()->FindFixBin(xcenter) >= 1)),
-                     y_is_zero = ((total_systematics.GetYaxis()->FindFixBin(ycenter) <= total_systematics.GetNbinsY()) &&
-                                  (total_systematics.GetYaxis()->FindFixBin(ycenter) >= 1)),
-                     z_is_zero = ((total_systematics.GetZaxis()->FindFixBin(zcenter) <= total_systematics.GetNbinsZ()) &&
-                                  (total_systematics.GetZaxis()->FindFixBin(zcenter) >= 1));
-                if (x_is_zero && y_is_zero && z_is_zero) extrapolation.SetBinContent(gbin, 0.0);
-                else extrapolation.SetBinContent(gbin, ref_extrapolation.GetBinContent(ref_extrapolation.FindFixBin(xcenter, ycenter, zcenter)));
-                extrapolation.SetBinError(gbin, extrapolation.GetBinContent(gbin));
-              }
-            }
-          }
-        }
-
-        delete &ref_extrapolation;
+	Info("smoothCalibrations", "modifying extrapolation uncertainties to match number of bins in systematic \"overlap\" region");
+	auto &extrapolation     = *static_cast<TH1*>((*c)("extrapolation")),
+	  &ref_extrapolation = *static_cast<TH1*>((*c)("extrapolation")->Clone());
+	ref_extrapolation.SetDirectory(0);
+	auto ndim = ref_extrapolation.GetDimension();
+	
+	for (auto dim = 1; dim <= ndim; ++dim) {
+	  double new_xmin = 0.0, new_xmax = 0.0;
+	  vector<Double_t> new_bins;
+	  TAxis *perm_axis = nullptr,
+	    *new_axis = nullptr;
+	  
+	  if (dim == 1) {
+	    perm_axis = extrapolation.GetXaxis();
+	    new_axis = total_systematics.GetXaxis();
+	  }
+	  if (dim == 2) {
+	    perm_axis = extrapolation.GetYaxis();
+	    new_axis = total_systematics.GetYaxis();
+	  }
+	  if (dim == 3) {
+	    perm_axis = extrapolation.GetZaxis();
+	    new_axis = total_systematics.GetZaxis();
+	  }
+	  
+	  new_xmin = new_axis->GetXmin();
+	  new_xmax = new_axis->GetXmax();
+	  
+	  if (perm_axis->GetNbins() == new_axis->GetNbins()) continue;
+	  
+	  bool filled_with_new = false;
+	  for (auto perm_bin = 0; perm_bin <= perm_axis->GetNbins(); ++perm_bin) {
+	    auto perm_value = (*perm_axis->GetXbins())[perm_bin];
+	    // the additional tolerance protection is due to small numerical differences in bin ranges
+	    if (perm_value - new_xmin < -smoother.GetTol() || perm_value - new_xmax > smoother.GetTol())
+	      new_bins.push_back(perm_value);
+	    else if (!filled_with_new) {
+	      for (auto new_bin = 0; new_bin <= new_axis->GetNbins(); ++new_bin)
+		new_bins.push_back((*new_axis->GetXbins())[new_bin]);
+	      filled_with_new = true;
+	    }
+	  }
+	  
+	  Double_t *raw_new_bins = new Double_t[new_bins.size()];
+	  auto i = 0;
+	  for (auto val : new_bins)
+	    raw_new_bins[i++] = val;
+	  perm_axis->Set(new_bins.size() - 1, raw_new_bins);
+	  
+	}
+	
+	if (ndim == 1) {
+	  extrapolation.SetBins(extrapolation.GetXaxis()->GetNbins(), extrapolation.GetXaxis()->GetXbins()->GetArray());
+	  for (auto xbin = 1; xbin <= extrapolation.GetNbinsX(); ++xbin) {
+	    auto gbin = extrapolation.GetBin(xbin);
+	    auto xcenter = extrapolation.GetXaxis()->GetBinCenter(xbin);
+	    bool x_is_zero = ((total_systematics.GetXaxis()->FindFixBin(xcenter) <= total_systematics.GetNbinsX()) &&
+			      (total_systematics.GetXaxis()->FindFixBin(xcenter) >= 1));
+	    if (x_is_zero) extrapolation.SetBinContent(gbin, 0.0);
+	    else extrapolation.SetBinContent(gbin, ref_extrapolation.GetBinContent(ref_extrapolation.FindFixBin(xcenter)));
+	    extrapolation.SetBinError(gbin, extrapolation.GetBinContent(gbin));
+	  }
+	}
+	else if (ndim == 2) {
+	  extrapolation.SetBins(extrapolation.GetXaxis()->GetNbins(), extrapolation.GetXaxis()->GetXbins()->GetArray(),
+				extrapolation.GetYaxis()->GetNbins(), extrapolation.GetYaxis()->GetXbins()->GetArray());
+	  for (auto xbin = 1; xbin <= extrapolation.GetNbinsX(); ++xbin) {
+	    for (auto ybin = 1; ybin <= extrapolation.GetNbinsY(); ++ybin) {
+	      auto gbin = extrapolation.GetBin(xbin, ybin);
+	      auto xcenter = extrapolation.GetXaxis()->GetBinCenter(xbin),
+		ycenter = extrapolation.GetYaxis()->GetBinCenter(ybin);
+	      bool x_is_zero = ((total_systematics.GetXaxis()->FindFixBin(xcenter) <= total_systematics.GetNbinsX()) &&
+				(total_systematics.GetXaxis()->FindFixBin(xcenter) >= 1)),
+		y_is_zero = ((total_systematics.GetYaxis()->FindFixBin(ycenter) <= total_systematics.GetNbinsY()) &&
+			     (total_systematics.GetYaxis()->FindFixBin(ycenter) >= 1));
+	      if (x_is_zero && y_is_zero) extrapolation.SetBinContent(gbin, 0.0);
+	      else extrapolation.SetBinContent(gbin, ref_extrapolation.GetBinContent(ref_extrapolation.FindFixBin(xcenter, ycenter)));
+	      extrapolation.SetBinError(gbin, extrapolation.GetBinContent(gbin));
+	    }
+	  }
+	}
+	else if (ndim == 3) {
+	  extrapolation.SetBins(extrapolation.GetXaxis()->GetNbins(), extrapolation.GetXaxis()->GetXbins()->GetArray(),
+				extrapolation.GetYaxis()->GetNbins(), extrapolation.GetYaxis()->GetXbins()->GetArray(),
+				extrapolation.GetZaxis()->GetNbins(), extrapolation.GetZaxis()->GetXbins()->GetArray());
+	  for (auto xbin = 1; xbin <= extrapolation.GetNbinsX(); ++xbin) {
+	    for (auto ybin = 1; ybin <= extrapolation.GetNbinsY(); ++ybin) {
+	      for (auto zbin = 1; zbin <= extrapolation.GetNbinsZ(); ++zbin) {
+		auto gbin = extrapolation.GetBin(xbin, ybin, zbin);
+		auto xcenter = extrapolation.GetXaxis()->GetBinCenter(xbin),
+		  ycenter = extrapolation.GetYaxis()->GetBinCenter(ybin),
+		  zcenter = extrapolation.GetZaxis()->GetBinCenter(zbin);
+		bool x_is_zero = ((total_systematics.GetXaxis()->FindFixBin(xcenter) <= total_systematics.GetNbinsX()) &&
+				  (total_systematics.GetXaxis()->FindFixBin(xcenter) >= 1)),
+		  y_is_zero = ((total_systematics.GetYaxis()->FindFixBin(ycenter) <= total_systematics.GetNbinsY()) &&
+			       (total_systematics.GetYaxis()->FindFixBin(ycenter) >= 1)),
+		  z_is_zero = ((total_systematics.GetZaxis()->FindFixBin(zcenter) <= total_systematics.GetNbinsZ()) &&
+			       (total_systematics.GetZaxis()->FindFixBin(zcenter) >= 1));
+		if (x_is_zero && y_is_zero && z_is_zero) extrapolation.SetBinContent(gbin, 0.0);
+		else extrapolation.SetBinContent(gbin, ref_extrapolation.GetBinContent(ref_extrapolation.FindFixBin(xcenter, ycenter, zcenter)));
+		extrapolation.SetBinError(gbin, extrapolation.GetBinContent(gbin));
+	      }
+	    }
+	  }
+	}
+	
+	delete &ref_extrapolation;
       }
       else
-        Warning("smoothCalibrations", "couldn't find extrapolation uncertainty");
-
+	Warning("smoothCalibrations", "couldn't find extrapolation uncertainty");
+      
       // TODO: need to replace these with standalone methods
       // auto optimal_bandwidth = GetOptimalChi2NdfWidthX(0.05, 1, 1);
       // auto L1CV_optimal = GetOptimalLCVWidthX(0.05);
       // cout << "Optimal Bandwidth: " << optimal_bandwidth << "\t\t" << L1CV_optimal << endl;
       // smoother.SetBandwidth(0, optimal_bandwidth < 0.4 ? 0.4 : optimal_bandwidth);
-
+      
       // calculate varaince-covariance matrix
-      KernelSmoother::NumericalMatrix_t cov(GetTotalRealNbins(result), GetTotalRealNbins(result));
+      KernelSmoother::NumericalMatrix_t cov(GetTotalRealNbins(result), GetTotalRealNbins(result)); 
       {
-        Info("smoothCalibrations", "calculating variance-covariance matrix");
-        KernelSmoother::NumericalMatrix_t cor_cov(GetTotalRealNbins(result), GetTotalRealNbins(result));
-        KernelSmoother::NumericalMatrix_t uncor_cov(GetTotalRealNbins(result), GetTotalRealNbins(result));
-        cor_cov.Zero();
-        uncor_cov.Zero();
-
-        // loop through all systematic histograms to find bin-correlated and -uncorrelated ones
-        itt = c->MakeIterator();
-        while ((k = (TObjString*)itt->Next())) {
-          if ((*c)(k)->InheritsFrom("TH1")) {
-            TH1 &h = *static_cast<TH1*>((*c)(k));
-
-            if ((k->GetString() == "result") ||
-                (k->GetString() == "comment") ||
-                (k->GetString() == "combined") ||
-                (k->GetString() == "MCreference") ||
-                (k->GetString() == "MChadronisation") ||
-                (k->GetString() == "ReducedSets") ||
-                (k->GetString() == "extrapolation") ||
-                (k->GetString() == "statistics") ||
-                (k->GetString() == "systematics")) continue;
-
-            auto isCorrelated = c->isBinCorrelated(k->GetString().Data());
-            // FIXME: revert for production!!!!!!
-            // NOTE: hack for ttHbb
-            // auto isCorrelated = c->isBinCorrelated(k->GetString().Data()) && (k->GetString() != "FT_EFF_Run1ToRun2_extrap");
-            auto covIndex = 0;
-            for (Int_t bin = 0; bin < GetTotalNbins(h); ++bin) {
-              if (h.IsBinOverflow(bin) || h.IsBinUnderflow(bin)) continue;
-              auto average_error = (h.GetBinContent(bin) + h.GetBinError(bin))*.5; // average of up/down variation
-              if (isCorrelated) {
-                auto corcovIndex = 0;
-                for (Int_t corbin = 0; corbin < GetTotalNbins(h); ++corbin) {
-                  if (h.IsBinOverflow(corbin) || h.IsBinUnderflow(corbin)) continue;
-                  auto coraverage_error = (h.GetBinContent(corbin) + h.GetBinError(corbin))*.5; // average of up/down variation
-                  cor_cov(covIndex, corcovIndex) += average_error*coraverage_error;
-                  ++corcovIndex;
-                }
-              }
-              else
-                uncor_cov(covIndex, covIndex) += average_error*average_error;
-              ++covIndex;
-            }
-          }
-        }
-        {
-          auto covIndex = 0;
-          for (Int_t bin = 0; bin < GetTotalNbins(result); ++bin) {
-            if (result.IsBinOverflow(bin) || result.IsBinUnderflow(bin)) continue;
-            auto average_error = result.GetBinError(bin);
-            uncor_cov(covIndex, covIndex) += average_error*average_error;
-            ++covIndex;
-          }
-        }
-        for (KernelSmoother::NumericalMatrixIndex_t row = 0; row < cov.GetNrows(); ++row)
-          for (KernelSmoother::NumericalMatrixIndex_t col = row; col < cov.GetNcols(); ++col) {
-            cov(row, col) = cor_cov(row, col) + uncor_cov(row, col);
-            // TODO: remove whenever new way is developed
-            // cov(row, col) = uncor_cov(row, col); // OLD WAY
-            if (row != col) cov(col, row) = cov(row, col);
-          }
-        // TODO: testing
-        // cov.UnitMatrix();
+	Info("smoothCalibrations", "calculating variance-covariance matrix");
+	KernelSmoother::NumericalMatrix_t cor_cov(GetTotalRealNbins(result), GetTotalRealNbins(result));
+	KernelSmoother::NumericalMatrix_t uncor_cov(GetTotalRealNbins(result), GetTotalRealNbins(result));
+	cor_cov.Zero();
+	uncor_cov.Zero();
+	
+	// loop through all systematic histograms to find bin-correlated and -uncorrelated ones
+	itt = c->MakeIterator();
+	while ((k = (TObjString*)itt->Next())) {
+	  if ((*c)(k)->InheritsFrom("TH1")) {
+	    TH1 &h = *static_cast<TH1*>((*c)(k));
+	    
+	    if ((k->GetString() == "result") ||
+		(k->GetString() == "comment") ||
+		(k->GetString() == "combined") ||
+		(k->GetString() == "MCreference") ||
+		(k->GetString() == "MChadronisation") ||
+		(k->GetString() == "ReducedSets") ||
+		(k->GetString() == "extrapolation") ||
+		(k->GetString() == "statistics") ||
+		(k->GetString() == "systematics")) continue;
+	    
+	    auto isCorrelated = c->isBinCorrelated(k->GetString().Data());
+	    // FIXME: revert for production!!!!!!
+	    // NOTE: hack for ttHbb
+	    // auto isCorrelated = c->isBinCorrelated(k->GetString().Data()) && (k->GetString() != "FT_EFF_Run1ToRun2_extrap");
+	    auto covIndex = 0;
+	    for (Int_t bin = 0; bin < GetTotalNbins(h); ++bin) {
+	      if (h.IsBinOverflow(bin) || h.IsBinUnderflow(bin)) continue;
+	      auto average_error = (h.GetBinContent(bin) + h.GetBinError(bin))*.5; // average of up/down variation
+	      if (isCorrelated) {
+		auto corcovIndex = 0;
+		for (Int_t corbin = 0; corbin < GetTotalNbins(h); ++corbin) {
+		  if (h.IsBinOverflow(corbin) || h.IsBinUnderflow(corbin)) continue;
+		  auto coraverage_error = (h.GetBinContent(corbin) + h.GetBinError(corbin))*.5; // average of up/down variation
+		  cor_cov(covIndex, corcovIndex) += average_error*coraverage_error;
+		  ++corcovIndex;
+		}
+	      }
+	      else
+		uncor_cov(covIndex, covIndex) += average_error*average_error;
+	      ++covIndex;
+	    }
+	  }
+	}
+	
+	auto covIndex = 0;
+	for (Int_t bin = 0; bin < GetTotalNbins(result); ++bin) {
+	  if (result.IsBinOverflow(bin) || result.IsBinUnderflow(bin)) continue;
+	  auto average_error = result.GetBinError(bin);
+	  uncor_cov(covIndex, covIndex) += average_error*average_error;
+	  ++covIndex;
+	}
+	
+	for (KernelSmoother::NumericalMatrixIndex_t row = 0; row < cov.GetNrows(); ++row)
+	  for (KernelSmoother::NumericalMatrixIndex_t col = row; col < cov.GetNcols(); ++col) {
+	    cov(row, col) = cor_cov(row, col) + uncor_cov(row, col);
+	    // TODO: remove whenever new way is developed
+	    // cov(row, col) = uncor_cov(row, col); // OLD WAY
+	    if (row != col) cov(col, row) = cov(row, col);
+	  }
+	// TODO: testing
+	// cov.UnitMatrix();
       }
       // auto cov_copy = cov;
       // cov_copy.Invert();
       // cov.Print();
       // cov_copy.Print();
       // return;
-
+      
       // if (smoother.GetBandwidth(0) <= 0.0)
       //   Info("smoothCalibrations", "smoothing using an adaptive bandwidth technique");
       // else
       for (decltype(smoother.GetDimension()) dim = 0; dim < smoother.GetDimension(); ++dim)
-        Info("smoothCalibrations", "smoothing using a global bandwidth %f", smoother.GetBandwidth(dim));
-
+	Info("smoothCalibrations", "smoothing using a global bandwidth %f", smoother.GetBandwidth(dim));
+      
       // smooth central value "result"
       smoother.UseWeightedData(false);
       Info("smoothCalibrations", "smoothing %s/%s", directory_name.Data(), key_name.Data());
@@ -1333,175 +1314,173 @@ void Analysis::smoothCalibrations (TString      fileName,
       Info("smoothCalibrations", "\t\thistogram name, title - %s, %s", result.GetName(), result.GetTitle());
       // for (decltype(smoother.GetDimension()) dim = 0; dim < smoother.GetDimension(); ++dim) {
       for (decltype(result.GetDimension()) dim = 0; dim < result.GetDimension(); ++dim) {
-        // if (smoother.GetDimension() == 1) ++dim; // Hack
-        const char *title;
-        auto naxis_bins = 0;
-        if (dim == 0) {
-          title = result.GetXaxis()->GetTitle();
-          naxis_bins = result.GetXaxis()->GetNbins();
-        }
-        else if (dim == 1) {
-          title = result.GetYaxis()->GetTitle();
-          naxis_bins = result.GetYaxis()->GetNbins();
-        }
-        else if (dim == 2) {
-          title = result.GetZaxis()->GetTitle();
-          naxis_bins = result.GetZaxis()->GetNbins();
-        }
-        // if (smoother.GetDimension() == 1) --dim; // Hack
-        // Info("smoothCalibrations", "\t\tnumber of smoothed %s bins - %lu", title, smoother.GetNbins(dim));
-        Info("smoothCalibrations", "\t\tnumber of %s bins - %d", title, naxis_bins);
+	// if (smoother.GetDimension() == 1) ++dim; // Hack
+	const char *title;
+	auto naxis_bins = 0;
+	if (dim == 0) {
+	  title = result.GetXaxis()->GetTitle();
+	  naxis_bins = result.GetXaxis()->GetNbins();
+	}
+	else if (dim == 1) {
+	  title = result.GetYaxis()->GetTitle();
+	  naxis_bins = result.GetYaxis()->GetNbins();
+	}
+	else if (dim == 2) {
+	  title = result.GetZaxis()->GetTitle();
+	  naxis_bins = result.GetZaxis()->GetNbins();
+	}
+	// if (smoother.GetDimension() == 1) --dim; // Hack
+	// Info("smoothCalibrations", "\t\tnumber of smoothed %s bins - %lu", title, smoother.GetNbins(dim));
+	Info("smoothCalibrations", "\t\tnumber of %s bins - %d", title, naxis_bins);
       }
-
+      
       if (!SmoothHistogram(result, smoother, uniaxis, &cov)) {
-        Fatal("smoothCalibrations", "unable to smooth \"result\" histogram - aborting...");
-        return;
+	Fatal("smoothCalibrations", "unable to smooth \"result\" histogram - aborting...");
+	return;
       }
-
+      
       smoother.UseWeightedData(false);
       Info("smoothCalibrations", "smoothing %s/%s", directory_name.Data(), key_name.Data());
       Info("smoothCalibrations", "\t\tusing bin errors - %d", smoother.UsingWeightedData());
       Info("smoothCalibrations", "\t\thistogram name, title - %s, %s", result.GetName(), result.GetTitle());
       // for (decltype(smoother.GetDimension()) dim = 0; dim < smoother.GetDimension(); ++dim) {
       for (decltype(result.GetDimension()) dim = 0; dim < result.GetDimension(); ++dim) {
-        // // Hack
-        // if (smoother.GetDimension() == 1) ++dim;
-        const char *title;
-        auto naxis_bins = 0;
-        if (dim == 0) {
-          title = result.GetXaxis()->GetTitle();
-          naxis_bins = result.GetXaxis()->GetNbins();
-        }
-        else if (dim == 1) {
-          title = result.GetYaxis()->GetTitle();
-          naxis_bins = result.GetYaxis()->GetNbins();
-        }
-        else if (dim == 2) {
-          title = result.GetZaxis()->GetTitle();
-          naxis_bins = result.GetZaxis()->GetNbins();
-        }
-        // // Hack
-        // if (smoother.GetDimension() == 1) --dim;
-        Info("smoothCalibrations", "\t\tnumber of smoothed %s bins - %d", title, naxis_bins);
+	// // Hack
+	// if (smoother.GetDimension() == 1) ++dim;
+	const char *title;
+	auto naxis_bins = 0;
+	if (dim == 0) {
+	  title = result.GetXaxis()->GetTitle();
+	  naxis_bins = result.GetXaxis()->GetNbins();
+	}
+	else if (dim == 1) {
+	  title = result.GetYaxis()->GetTitle();
+	  naxis_bins = result.GetYaxis()->GetNbins();
+	}
+	else if (dim == 2) {
+	  title = result.GetZaxis()->GetTitle();
+	  naxis_bins = result.GetZaxis()->GetNbins();
+	}
+	// // Hack
+	// if (smoother.GetDimension() == 1) --dim;
+	Info("smoothCalibrations", "\t\tnumber of smoothed %s bins - %d", title, naxis_bins);
       }
-
+      
       if (!SmoothHistogram(result_no_error, smoother, uniaxis)) {
-        Fatal("smoothCalibrations", "unable to smooth \"result\" (no bin errors) histogram - aborting...");
-        return;
+	Fatal("smoothCalibrations", "unable to smooth \"result\" (no bin errors) histogram - aborting...");
+	return;
       }
-
+      
       // this is needed for CDI interface
       RemoveHistogramError(result);
       RemoveHistogramError(result_no_error);
-
+      
       // perform stat. nuisance treatment of errors
-      {
-        TH1 *stat_var = static_cast<TH1*>(unsmoothed_result.Clone());
-        int  nbins    = GetTotalNbins(*stat_var);
-
-        for (int bin = 0; bin < nbins; ++bin)
-          stat_var->SetBinContent(bin, stat_var->GetBinError(bin));
-
-        stat_var->SetDirectory(0);
-
-        // smoother.UseWeightedData(true);
-        smoother.UseWeightedData(false);
-        auto count       = 0,
-             total_count = 0;
-
-        for (int bin = 0; bin <= nbins; ++bin) {
-          if (stat_var->IsBinOverflow(bin) || stat_var->IsBinUnderflow(bin)) continue;
-          ++total_count;
-        }
-
-        for (int bin = 0; bin <= nbins; ++bin) {
-          if (stat_var->IsBinOverflow(bin) || stat_var->IsBinUnderflow(bin)) continue;
-          ++count;
-          TObjString *new_key = new TObjString(Form("FT_EFF_Stat Nuis %d of %d", count, total_count));
-
-          //Info("smoothCalibrations", "creating %s/%s", directory_name.Data(), Form("stat_nuis_%d_of_%d", count, total_count));
-          Info("smoothCalibrations", "creating %s/%s", directory_name.Data(), new_key->GetString().Data());
-          Info("smoothCalibrations", "\t\tusing bin errors - %d", smoother.UsingWeightedData());
-          Info("smoothCalibrations", "\t\thistogram name, title - %s, %s", new_key->GetString().Data(), Form("stat_nuis_%d_of_%d", count, total_count));
-          // for (decltype(smoother.GetDimension()) dim = 0; dim < smoother.GetDimension(); ++dim) {
-          //   // Hack
-          //   if (smoother.GetDimension() == 1) ++dim;
-          //   const char *title;
-          //   if (dim == 0)
-          //     title = result.GetXaxis()->GetTitle();
-          //   else if (dim == 1)
-          //     title = result.GetYaxis()->GetTitle();
-          //   else if (dim == 2)
-          //     title = result.GetZaxis()->GetTitle();
-          //   // Hack
-          //   if (smoother.GetDimension() == 1) --dim;
-          //   Info("smoothCalibrations", "\t\tnumber of smoothed %s bins - %lu", title, smoother.GetNbins(dim));
-          // }
-          TH1 *stat_nuis = GetNuisanceVariation(smoother, /*result_no_error, unsmoothed_result,*/ *stat_var, bin, uniaxis);
-          stat_nuis->SetName(new_key->GetString().Data());
-          stat_nuis->SetTitle(Form("stat_nuis_%d_of_%d", count, total_count));
-
-          {
-            auto nbins = GetTotalNbins(*stat_nuis);
-
-            AddQuadToFrom(total_systematics, *stat_nuis);
-            for (auto i = 0; i <= nbins; ++i) {
-              // make errors conform to CDI convention
-              stat_nuis->SetBinError(i, stat_nuis->GetBinContent(i));
-            }
-
-          }
-
-          stat_nuis->SetDirectory(0);
-          c->Add(new_key, stat_nuis);
-        }
-
-        delete stat_var;
+      
+      TH1 *stat_var = static_cast<TH1*>(unsmoothed_result.Clone());
+      int  nbins    = GetTotalNbins(*stat_var);
+      
+      for (int bin = 0; bin < nbins; ++bin)
+	stat_var->SetBinContent(bin, stat_var->GetBinError(bin));
+      
+      stat_var->SetDirectory(0);
+      
+      // smoother.UseWeightedData(true);
+      smoother.UseWeightedData(false);
+      auto count       = 0;
+      auto total_count = 0;
+      
+      for (int bin = 0; bin <= nbins; ++bin) {
+	if (stat_var->IsBinOverflow(bin) || stat_var->IsBinUnderflow(bin)) continue;
+	++total_count;
       }
-
+      
+      for (int bin = 0; bin <= nbins; ++bin) {
+	if (stat_var->IsBinOverflow(bin) || stat_var->IsBinUnderflow(bin)) continue;
+	++count;
+	TObjString *new_key = new TObjString(Form("FT_EFF_Stat Nuis %d of %d", count, total_count));
+	
+	//Info("smoothCalibrations", "creating %s/%s", directory_name.Data(), Form("stat_nuis_%d_of_%d", count, total_count));
+	Info("smoothCalibrations", "creating %s/%s", directory_name.Data(), new_key->GetString().Data());
+	Info("smoothCalibrations", "\t\tusing bin errors - %d", smoother.UsingWeightedData());
+	Info("smoothCalibrations", "\t\thistogram name, title - %s, %s", new_key->GetString().Data(), Form("stat_nuis_%d_of_%d", count, total_count));
+	// for (decltype(smoother.GetDimension()) dim = 0; dim < smoother.GetDimension(); ++dim) {
+	//   // Hack
+	//   if (smoother.GetDimension() == 1) ++dim;
+	//   const char *title;
+	//   if (dim == 0)
+	//     title = result.GetXaxis()->GetTitle();
+	//   else if (dim == 1)
+	//     title = result.GetYaxis()->GetTitle();
+	//   else if (dim == 2)
+	//     title = result.GetZaxis()->GetTitle();
+	//   // Hack
+	//   if (smoother.GetDimension() == 1) --dim;
+	//   Info("smoothCalibrations", "\t\tnumber of smoothed %s bins - %lu", title, smoother.GetNbins(dim));
+	// }
+	TH1 *stat_nuis = GetNuisanceVariation(smoother, /*result_no_error, unsmoothed_result,*/ *stat_var, bin, uniaxis);
+	stat_nuis->SetName(new_key->GetString().Data());
+	stat_nuis->SetTitle(Form("stat_nuis_%d_of_%d", count, total_count));
+	
+	auto nbins = GetTotalNbins(*stat_nuis);
+	
+	AddQuadToFrom(total_systematics, *stat_nuis);
+	for (auto i = 0; i <= nbins; ++i) {
+	  // make errors conform to CDI convention
+	  stat_nuis->SetBinError(i, stat_nuis->GetBinContent(i));
+	}
+	
+	stat_nuis->SetDirectory(0);
+	c->Add(new_key, stat_nuis);
+      }
+      
+      delete stat_var;
+      
+      /////
+      
       // loop through all systematic histograms
       itt = c->MakeIterator();
-
+      
       while ((k = (TObjString*)itt->Next())) {
-        if ((*c)(k)->InheritsFrom("TH1")) {
-          auto &h               = *static_cast<TH1*>((*c)(k));
-          bool  bins_correlated = c->isBinCorrelated(k->GetString().Data());
-          // FIXME: revert for production!!!!!!
-          // NOTE: hack for ttHbb
-          // bool  bins_correlated = c->isBinCorrelated(k->GetString().Data()) && (k->GetString() != "FT_EFF_Run1ToRun2_extrap");
-
-          if ((k->GetString() == "result") ||
-              k->GetString().Contains("FT_EFF_Stat Nuis") ||
-              (k->GetString() == "comment") ||
-              (k->GetString() == "combined") ||
-              (k->GetString() == "MCreference") ||
-              (k->GetString() == "MChadronisation") ||
-              (k->GetString() == "ReducedSets") ||
-              (k->GetString() == "extrapolation") ||
-              (k->GetString() == "statistics") ||
-              (k->GetString() == "systematics")) continue;
-
-          if (bins_correlated) {
-            auto &h_error         = *static_cast<TH1*>(h.Clone());
-            h_error.SetDirectory(0);
-
-            for (auto bin = 0; bin <= GetTotalNbins(h_error); ++bin)
-              h_error.SetBinContent(bin, h_error.GetBinError(bin));
-
-            smoother.UseWeightedData(false);
-            Info("smoothCalibrations", "smoothing %s/%s", directory_name.Data(), key_name.Data());
-            Info("smoothCalibrations", "\t\tusing bin errors - %d", smoother.UsingWeightedData());
-            Info("smoothCalibrations", "\t\thistogram name - %s", k->GetString().Data());
-            // for (decltype(smoother.GetDimension()) dim = 0; dim < smoother.GetDimension(); ++dim) {
-            //   // Hack
-            //   if (smoother.GetDimension() == 1) ++dim;
-            //   const char *title;
-            //   if (dim == 0)
-            //     title = result.GetXaxis()->GetTitle();
-            //   else if (dim == 1)
-            //     title = result.GetYaxis()->GetTitle();
-            //   else if (dim == 2)
-            //     title = result.GetZaxis()->GetTitle();
+	if ((*c)(k)->InheritsFrom("TH1")) {
+	  auto &h               = *static_cast<TH1*>((*c)(k));
+	  bool  bins_correlated = c->isBinCorrelated(k->GetString().Data());
+	  // FIXME: revert for production!!!!!!
+	  // NOTE: hack for ttHbb
+	  // bool  bins_correlated = c->isBinCorrelated(k->GetString().Data()) && (k->GetString() != "FT_EFF_Run1ToRun2_extrap");
+	  
+	  if ((k->GetString() == "result") ||
+	      k->GetString().Contains("FT_EFF_Stat Nuis") ||
+	      (k->GetString() == "comment") ||
+	      (k->GetString() == "combined") ||
+	      (k->GetString() == "MCreference") ||
+	      (k->GetString() == "MChadronisation") ||
+	      (k->GetString() == "ReducedSets") ||
+	      (k->GetString() == "extrapolation") ||
+	      (k->GetString() == "statistics") ||
+	      (k->GetString() == "systematics")) continue;
+	  
+	  if (bins_correlated) {
+	    auto &h_error         = *static_cast<TH1*>(h.Clone());
+	    h_error.SetDirectory(0);
+	    
+	    for (auto bin = 0; bin <= GetTotalNbins(h_error); ++bin)
+	      h_error.SetBinContent(bin, h_error.GetBinError(bin));
+	    
+	    smoother.UseWeightedData(false);
+	    Info("smoothCalibrations", "smoothing %s/%s", directory_name.Data(), key_name.Data());
+	    Info("smoothCalibrations", "\t\tusing bin errors - %d", smoother.UsingWeightedData());
+	    Info("smoothCalibrations", "\t\thistogram name - %s", k->GetString().Data());
+	    // for (decltype(smoother.GetDimension()) dim = 0; dim < smoother.GetDimension(); ++dim) {
+	    //   // Hack
+	    //   if (smoother.GetDimension() == 1) ++dim;
+	    //   const char *title;
+	    //   if (dim == 0)
+	    //     title = result.GetXaxis()->GetTitle();
+	    //   else if (dim == 1)
+	    //     title = result.GetYaxis()->GetTitle();
+	    //   else if (dim == 2)
+	    //     title = result.GetZaxis()->GetTitle();
             //   // Hack
             //   if (smoother.GetDimension() == 1) --dim;
             //   Info("smoothCalibrations", "\t\tnumber of smoothed %s bins - %lu", title, smoother.GetNbins(dim));
@@ -1528,33 +1507,33 @@ void Analysis::smoothCalibrations (TString      fileName,
         TH1 &h        = *static_cast<TH1*>((*c)(k));
         TH1 *syst_var = static_cast<TH1*>(unsmoothed_result.Clone());
         auto nbins    = GetTotalNbins(h);
-
+	
         auto &h_error = *static_cast<TH1*>(h.Clone());
         h_error.SetDirectory(0);
-
+	
         for (auto bin = 0; bin <= GetTotalNbins(h_error); ++bin)
           h_error.SetBinContent(bin, h_error.GetBinError(bin));
-
+	
         for (int bin = 0; bin < nbins; ++bin) {
           syst_var->SetBinContent(bin, h.GetBinContent(bin));
           syst_var->SetBinError(bin, h.GetBinError(bin));
         }
-
+	
         syst_var->SetDirectory(0);
 
-        auto count       = 0,
-             total_count = 0;
-
+        auto count       = 0;
+        auto total_count = 0;
+	
         for (int bin = 0; bin <= nbins; ++bin) {
           if (syst_var->IsBinOverflow(bin) || syst_var->IsBinUnderflow(bin)) continue;
           ++total_count;
         }
-
+	
         for (int bin = 0; bin <= nbins; ++bin) {
           if (syst_var->IsBinOverflow(bin) || syst_var->IsBinUnderflow(bin)) continue;
           ++count;
           TObjString *new_key = new TObjString(Form("%s Nuis %d of %d", k->GetString().Data(), count, total_count));
-
+	  
           smoother.UseWeightedData(false);
           Info("smoothCalibrations", "creating %s/%s", directory_name.Data(), new_key->GetString().Data());
           Info("smoothCalibrations", "\t\tusing bin errors - %d", smoother.UsingWeightedData());
@@ -1579,24 +1558,22 @@ void Analysis::smoothCalibrations (TString      fileName,
           syst_nuis->SetName(new_key->GetString().Data());
           syst_nuis->SetTitle(Form("%s nuis %d_of_%d", k->GetString().Data(), count, total_count));
 
-          {
-            auto nbins = GetTotalNbins(*syst_nuis);
-
-            AddQuadToFrom(total_systematics, *syst_nuis);
-            for (auto i = 0; i <= nbins; ++i) syst_nuis->SetBinError(i, syst_nuis_error->GetBinContent(i));
-          }
+	  auto nbins = GetTotalNbins(*syst_nuis);
+	  
+	  AddQuadToFrom(total_systematics, *syst_nuis);
+	  for (auto i = 0; i <= nbins; ++i) syst_nuis->SetBinError(i, syst_nuis_error->GetBinContent(i));
 
           syst_nuis_error->SetDirectory(0);
           delete syst_nuis_error;
           syst_nuis->SetDirectory(0);
           c->Add(new_key, syst_nuis);
         }
-
+	
         delete &h_error;
         delete syst_var;
         c->DeleteEntry(k);
       }
-
+    
       // set reduction list
       if (full_name.Contains(("/" + flavorInfo["B"].fileTag + "/").c_str())) {
         TVectorD *reductionSets = new TVectorD(2);
@@ -1629,10 +1606,11 @@ void Analysis::smoothCalibrations (TString      fileName,
 
       delete &result_no_error;
       delete &unsmoothed_result;
-    }
-    else if (class_name == "Analysis::CalibrationDataHistogramContainer") {
-      CalibrationDataHistogramContainer *c = static_cast<CalibrationDataHistogramContainer*>(o);
+    
+    } else if (class_name == "Analysis::CalibrationDataHistogramContainer") {
 
+      CalibrationDataHistogramContainer *c = static_cast<CalibrationDataHistogramContainer*>(o);
+      
       // set reduction list
       if (full_name.Contains(("/" + flavorInfo["B"].fileTag + "/").c_str())) {
         TVectorD *reductionSets = new TVectorD(2);
@@ -1663,10 +1641,10 @@ void Analysis::smoothCalibrations (TString      fileName,
         c->Add(str, reductionSets);
       }
     }
-
-
-    // cd to correct directory and write calibration data
+  
+    // Storing calibration data into the CDI
     of->cd(directory_name);
+    Info("smoothCalibrations", "Storing calibration data %s", key_name.Data());
     o->Write(key_name.Data(), TObject::kSingleKey);
     of->cd();
   }
